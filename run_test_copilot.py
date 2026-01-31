@@ -1,7 +1,6 @@
 import os
-from fb_parser import get_type_members
+from fb_parser_GPT_static import parse_source_with_includes
 
-# Värit
 SININEN = '\033[94m'
 VIHREA = '\033[92m'
 HARMAA = '\033[90m'
@@ -18,20 +17,30 @@ def aja_testi():
         print(f"Virhe: {e}")
         return
 
-    kaikki_tyypit, muuttujat = get_type_members(testi_koodi, testitiedosto)
+    ast, symbols = parse_source_with_includes(testi_koodi, testitiedosto)
+
+    kaikki_tyypit = symbols.all_types_dict()
+    muuttujat = symbols.var_to_type_dict()
     
     print(f"\n--- TESTI: {testitiedosto} ---")
     print("=" * 110)
 
-    # Tulostetaan löytyneet muuttujat
     print(f"{KELTAINEN}LÖYDYT MUUTTUJAT:{LOPPU}")
     for var_name, var_type in muuttujat.items():
         print(f"  Muuttuja: {var_name:<15} | Tyyppi: {var_type}")
     print("-" * 110)
 
-    # Tulostetaan tyyppien sisältö
     for tyyppi_nimi, jasenet in kaikki_tyypit.items():
         print(f"\nTYYPPI: {tyyppi_nimi.upper()}")
+
+        # --- LISÄTTY STATIC-KENTTIEN TULOSTUS ---
+        ts = symbols.getType(tyyppi_nimi)
+        for f in ts.static_fields:
+            print(f"  {SININEN}label:{LOPPU} \"{f.name:<18}\" | "
+                  f"{VIHREA}insertText:{LOPPU} \"{f.name:<15}\" | "
+                  f"{HARMAA}detail:{LOPPU} \"(Static) {f.name} As {f.type_name}\"")
+        # --- STATIC-KENTTIEN TULOSTUS LOPPU ---
+
         for m in jasenet:
             print(f"  {SININEN}label:{LOPPU} \"{m['label']:<18}\" | "
                   f"{VIHREA}insertText:{LOPPU} \"{m['insertText']:<15}\" | "

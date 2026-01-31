@@ -1,0 +1,21 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "F5_Alykas_Ajo",
+            "type": "shell",
+            "command": "if ('${fileExtname}' -eq '.bas') { & 'C:\\FreeBASIC\\fbc64.exe' -g '${file}'; if ($?) { & '${fileDirname}\\${fileBasenameNoExtension}.exe' } } elseif ('${fileExtname}' -eq '.py') { & python '${workspaceFolder}\\run_test.py' }",
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true,
+                "focus": true,
+                "showReuseMessage": false
+            }
+        }
+    ]
+}

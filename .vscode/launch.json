@@ -1,0 +1,14 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "F5 Automaatti",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "cmd",
+            "args": ["/c", "exit"],
+            "preLaunchTask": "F5_Alykas_Ajo",
+            "console": "internalConsole"
+        }
+    ]
+}
