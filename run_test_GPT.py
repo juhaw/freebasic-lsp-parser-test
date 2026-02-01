@@ -1,6 +1,5 @@
 import os
-import sys
-from fb_parser_GPT_static import parse_source_with_includes
+from fb_parser_GPT_static import Tokenizer, Parser, SymbolTable
 
 SININEN = '\033[94m'
 VIHREA = '\033[92m'
@@ -9,9 +8,8 @@ KELTAINEN = '\033[93m'
 LOPPU = '\033[0m'
 
 def aja_testi():
+    # Polku testitiedostoon
     testitiedosto = os.path.join(os.path.dirname(__file__), "testikoodi.bas")
-    mod = sys.modules[parse_source_with_includes.__module__]
-    print(mod.__file__)
     
     try:
         with open(testitiedosto, "r", encoding="utf-8", errors='ignore') as f:
@@ -20,7 +18,13 @@ def aja_testi():
         print(f"Virhe: {e}")
         return
 
-    ast, symbols = parse_source_with_includes(testi_koodi, testitiedosto)
+    # --- Uusi parser-käyttö ---
+    tokenizer = Tokenizer(testi_koodi, testitiedosto)
+    tokens = tokenizer.get_tokens()
+    symbols = SymbolTable()
+    parser = Parser(tokens, symbols, os.path.dirname(testitiedosto))
+    ast = parser.parseBlock()
+    # --- Parser ajetaan nyt suoraan --- #
 
     kaikki_tyypit = symbols.all_types_dict()
     muuttujat = symbols.var_to_type_dict()
@@ -42,7 +46,7 @@ def aja_testi():
             print(f"  {SININEN}label:{LOPPU} \"{f.name:<18}\" | "
                   f"{VIHREA}insertText:{LOPPU} \"{f.name:<15}\" | "
                   f"{HARMAA}detail:{LOPPU} \"(Static) {f.name} As {f.type_name}\"")
-        # --- STATIC-KENTTIEN TULOSTUS LOPPU ---
+        # --- STATIC-KENTTIEN TULOSTUS LOPPU --- #
 
         for m in jasenet:
             print(f"  {SININEN}label:{LOPPU} \"{m['label']:<18}\" | "
