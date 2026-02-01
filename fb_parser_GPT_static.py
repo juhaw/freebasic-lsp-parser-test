@@ -266,40 +266,37 @@ class Parser:
         return None
 
     def parseType(self):
-        """Parser for TYPE blocks in FreeBASIC, dictionary-based, AI slot-ready."""
         self.expect_keyword("type")
         name_tok = self.expect_ident()
-
-        # === AI_INSERT_POINT:TYPE_BODY ===
-        # AI voi liittää handler-funktiot ja lisälogiikan tähän
-        # </AI_INSERT_POINT>
 
         fields = []
         methods = []
         current_visibility = "public"
 
-        # Helper-funktio näkyvyyden asettamiseen
-        def setVisibility(vis):
+        # === AI_INSERT_POINT:TYPE_BODY ===
+        # AI-palasia voidaan liittää tähän
+        # Esim:
+        # type_keyword_handlers["shared"] = lambda: self.parseSharedField(current_visibility)
+        # </AI_INSERT_POINT>
+
+        # Helper-funktio näkyvyydelle
+        def set_visibility(vis):
             nonlocal current_visibility
             current_visibility = vis
-            return None  # Ei AST-solmua luoda
+            return None
 
-        # Dictionary, joka ohjaa avainsanat oikeaan käsittelyyn
+        # Sanakirja TYPE-body avainsanoille
         type_keyword_handlers = {
-            "public": lambda: setVisibility("public"),
-            "private": lambda: setVisibility("private"),
-            "declare": lambda: self.parseDeclareField(current_visibility),
+            "public": lambda: set_visibility("public"),
+            "private": lambda: set_visibility("private"),
+            "declare": lambda: self.parseTypeMethod(current_visibility),
             "static": lambda: self.parseStaticField(current_visibility),
-            "method": lambda: self.parseTypeMethod(current_visibility),
-            "operator": lambda: self.parseTypeOperator(current_visibility),
-            # Lisää uusia avainsanoja tarvittaessa
         }
 
-        # Kerätään tokenit TYPE-body:stä
-        tokens_in_type_body = self.collectTypeTokens()
-
-        for tok in tokens_in_type_body:
-            v = tok.value.lower() if tok.type == "KEYWORD" else "ident"
+        # Silmukka TYPE-bodyyn
+        while not (self.current().type == "KEYWORD" and self.current().value.lower() == "end"):
+            tok = self.current()
+            v = tok.value.lower() if tok.type == "KEYWORD" else None
 
             handler = type_keyword_handlers.get(v)
             if handler:
@@ -309,15 +306,17 @@ class Parser:
                         methods.append(node)
                     elif isinstance(node, FieldNode):
                         fields.append(node)
+                self.advance()  # tärkeää: edetään seuraavaan tokeniin
                 continue
 
-            # Jos tunnistamaton ident → oletetaan kenttä
             if tok.type == "IDENT":
-                node = self.parseTypeField(current_visibility)
-                if node:
-                    fields.append(node)
+                field = self.parseTypeField(current_visibility)
+                if field:
+                    fields.append(field)
+                self.advance()  # tärkeää
                 continue
 
+            # jos token ei tunnistu, edetään silti
             self.advance()
 
         self.expect_keyword("end")
@@ -326,7 +325,7 @@ class Parser:
         # Luo AST-solmu
         type_node = TypeNode(name_tok.value, fields, methods)
 
-        # Päivitä symbolitaulu ja staattiset kentät
+        # Symbolitaulu
         type_symbol = TypeSymbol(type_node.name, type_node.fields, type_node.methods)
         for f in type_node.fields:
             if getattr(f, "is_static", False):
