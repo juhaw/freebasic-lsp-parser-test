@@ -1,9 +1,7 @@
 import os
 import re
 
-# -----------------------------
-# TOKEN & TOKENIZER
-# -----------------------------
+# === AI_INSERT_POINT:IMPORTS ===
 
 class Token:
     def __init__(self, type_, value, line, column):
@@ -74,36 +72,33 @@ class Tokenizer:
     def get_tokens(self):
         return self.tokens
 
-# -----------------------------
-# AST NODES
-# -----------------------------
 
 class ASTNode:
     def __init__(self, kind):
         self.kind = kind
 
+class TypeNode(ASTNode):
+    def __init__(self, name, fields, methods):
+        super().__init__("Type")
+        self.name = name
+        self.fields = fields
+        self.methods = methods
+
 class FieldNode(ASTNode):
-    def __init__(self, name, type_name, visibility="public", is_static=False):
+    def __init__(self, name, type_name, visibility="public"):
         super().__init__("Field")
         self.name = name
         self.type_name = type_name
         self.visibility = visibility
-        self.is_static = is_static
+        self.is_static = False
 
 class MethodNode(ASTNode):
-    def __init__(self, name, params=None, return_type=None, visibility="public"):
+    def __init__(self, name, params, return_type, visibility="public"):
         super().__init__("Method")
         self.name = name
-        self.params = params if params else []
+        self.params = params
         self.return_type = return_type
         self.visibility = visibility
-
-class TypeNode(ASTNode):
-    def __init__(self, name, fields=None, methods=None):
-        super().__init__("Type")
-        self.name = name
-        self.fields = fields if fields else []
-        self.methods = methods if methods else []
 
 class DimNode(ASTNode):
     def __init__(self, names, type_name):
@@ -111,15 +106,11 @@ class DimNode(ASTNode):
         self.names = names
         self.type_name = type_name
 
-# -----------------------------
-# SYMBOLS
-# -----------------------------
-
 class TypeSymbol:
-    def __init__(self, name, fields=None, methods=None):
+    def __init__(self, name, fields, methods):
         self.name = name
-        self.fields = fields if fields else []
-        self.methods = methods if methods else []
+        self.fields = fields
+        self.methods = methods
         self.static_fields = []
 
 class VariableSymbol:
@@ -139,12 +130,12 @@ class SymbolTable:
         self.variables[var_symbol.name.lower()] = var_symbol
 
     def getType(self, name):
-        if not name:
+        if name is None:
             return None
         return self.types.get(name.lower())
 
     def getVariable(self, name):
-        if not name:
+        if name is None:
             return None
         return self.variables.get(name.lower())
 
@@ -172,18 +163,27 @@ class SymbolTable:
         return result
 
     def var_to_type_dict(self):
-        return {v.name: v.type for v in self.variables.values()}
+        result = {}
+        for name, vs in self.variables.items():
+            result[vs.name] = vs.type
+        return result
 
-# -----------------------------
-# PARSER
-# -----------------------------
 
 class Parser:
+    # === AI_INSERT_POINT:PARSER_CLASS_HEADER ===
     def __init__(self, tokens, symbol_table, base_path=""):
         self.tokens = tokens
         self.pos = 0
         self.symbol_table = symbol_table
         self.base_path = base_path
+
+        # === AI_INSERT_POINT:STATEMENT_HANDLERS ===
+        self.statement_handlers = {
+            "#include": self.parseInclude,
+            "type": self.parseType,
+            "dim": self.parseDim,
+            # Lisää uusia statement-käsittelijöitä tähän
+        }
 
     def current(self):
         return self.tokens[self.pos]
@@ -218,29 +218,23 @@ class Parser:
         nodes = []
         while self.current().type != "EOF":
             node = self.parseStatement()
-            if node:
+            if node is not None:
                 nodes.append(node)
         return nodes
 
     def parseStatement(self):
         tok = self.current()
-        if tok.type != "KEYWORD":
-            self.advance()
-            return None
-        v = tok.value.lower()
-        if v == "#include":
-            self.parseInclude()
-            return None
-        if v == "type":
-            return self.parseType()
-        if v == "dim":
-            return self.parseDim()
+        if tok.type == "KEYWORD":
+            handler = self.statement_handlers.get(tok.value.lower())
+            if handler:
+                return handler()
         self.advance()
         return None
 
     def parseInclude(self):
         self.advance()
-        if self.current().value == '"':
+        tok = self.current()
+        if tok.value == '"':
             self.advance()
             path_tok = self.current()
             if path_tok.type in ("IDENT", "KEYWORD"):
@@ -257,8 +251,9 @@ class Parser:
                         sub_parser = Parser(tokens, self.symbol_table, os.path.dirname(full_path))
                         sub_parser.parseBlock()
         else:
-            while self.current().type != "EOF" and self.current().line == self.current().line:
+            while self.current().type != "EOF" and self.current().line == tok.line:
                 self.advance()
+        return None
 
     def parseVisibility(self):
         tok = self.current()
@@ -273,43 +268,46 @@ class Parser:
     def parseType(self):
         self.expect_keyword("type")
         name_tok = self.expect_ident()
+
+        # === AI_INSERT_POINT:TYPE_START ===
         fields = []
         methods = []
-        current_visibility = "public"
 
+        current_visibility = "public"
         while not (self.current().type == "KEYWORD" and self.current().value.lower() == "end"):
             tok = self.current()
             if tok.type == "KEYWORD":
                 v = tok.value.lower()
                 if v in ("public", "private"):
                     vis = self.parseVisibility()
-                    if vis:
+                    if vis is not None:
                         current_visibility = vis
                     continue
                 if v == "declare":
                     method = self.parseTypeMethod(current_visibility)
-                    if method:
+                    if method is not None:
                         methods.append(method)
                     continue
                 if v == "static":
                     field = self.parseStaticField(current_visibility)
-                    if field:
+                    if field is not None:
                         fields.append(field)
                     continue
+
             if tok.type == "IDENT":
                 field = self.parseTypeField(current_visibility)
-                if field:
+                if field is not None:
                     fields.append(field)
                 continue
             self.advance()
-
         self.expect_keyword("end")
         self.expect_keyword("type")
 
         type_node = TypeNode(name_tok.value, fields, methods)
         type_symbol = TypeSymbol(type_node.name, type_node.fields, type_node.methods)
+
         for f in type_node.fields:
-            if f.is_static:
+            if getattr(f, "is_static", False):
                 type_symbol.static_fields.append(f)
 
         self.symbol_table.addType(type_symbol)
@@ -355,7 +353,6 @@ class Parser:
         self.expect_keyword("dim")
         names = []
         type_name = None
-
         if self.match_keyword("as"):
             type_tok = self.expect_ident()
             type_name = type_tok.value
@@ -387,35 +384,39 @@ class Parser:
                 type_name = type_tok.value
 
         dim_node = DimNode(names, type_name)
-        if type_name:
+        if type_name is not None:
             for n in names:
                 vs = VariableSymbol(n, type_name)
                 self.symbol_table.addVariable(vs)
         return dim_node
 
     def parseStaticField(self, visibility="public"):
-        self.advance()  # skip "Static"
+        self.advance()
         name_tok = self.expect_ident()
         if not self.match_keyword("as"):
             return None
         type_tok = self.expect_ident()
-        return FieldNode(name_tok.value, type_tok.value, visibility, is_static=True)
+        node = FieldNode(name_tok.value, type_tok.value, visibility)
+        node.is_static = True
+        return node
 
-# -----------------------------
-# HELPER FUNCTIONS
-# -----------------------------
 
+# === AI_INSERT_POINT:UTILITY_FUNCTIONS ===
 def resolveVariableType(symbol_table, name):
     var = symbol_table.getVariable(name)
-    return var.type if var else None
+    if var is None:
+        return None
+    return var.type
 
 def getMembersOfType(symbol_table, type_name):
     t = symbol_table.getType(type_name)
-    if not t:
+    if t is None:
         return []
     members = []
     for f in t.fields:
-        if f.is_static or f.visibility.lower() != "public":
+        if getattr(f, "is_static", False):
+            continue
+        if getattr(f, "visibility", "public").lower() != "public":
             continue
         members.append({
             "label": f.name,
@@ -423,7 +424,7 @@ def getMembersOfType(symbol_table, type_name):
             "detail": f"(Member) {f.name} As {f.type_name}"
         })
     for m in t.methods:
-        if m.visibility.lower() != "public":
+        if getattr(m, "visibility", "public").lower() != "public":
             continue
         members.append({
             "label": m.name,
@@ -441,10 +442,10 @@ def provideCompletions(symbol_table, text, position):
     var_name = m.group(1)
 
     t = symbol_table.getType(var_name)
-    if t:
+    if t is not None:
         members = []
         for f in t.fields:
-            if f.is_static:
+            if getattr(f, "is_static", False):
                 members.append({
                     "label": f.name,
                     "insertText": f.name,
@@ -453,7 +454,7 @@ def provideCompletions(symbol_table, text, position):
         return members
 
     tname = resolveVariableType(symbol_table, var_name)
-    if not tname:
+    if tname is None:
         return []
     return getMembersOfType(symbol_table, tname)
 
@@ -461,7 +462,7 @@ def provideHover(symbol_table, text, position):
     line = text.splitlines()[position["line"]]
     col = position["character"]
     start = col
-    while start > 0 and (start - 1) < len(line) and (line[start - 1].isalnum() or line[start - 1] == "_"):
+    while start > 0 and (start - 1) < len(line) and line[start - 1].isalnum() or (start - 1) < len(line) and line[start - 1] == "_":
         start -= 1
     end = col
     while end < len(line) and (line[end].isalnum() or line[end] == "_"):
@@ -470,10 +471,10 @@ def provideHover(symbol_table, text, position):
     if not name:
         return None
     var = symbol_table.getVariable(name)
-    if var:
+    if var is not None:
         return f"{var.name} As {var.type}"
     t = symbol_table.getType(name)
-    if t:
+    if t is not None:
         return f"Type {t.name}"
     return None
 
