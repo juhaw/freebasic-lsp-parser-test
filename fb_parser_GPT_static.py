@@ -266,6 +266,7 @@ class Parser:
         return None
 
     def parseType(self):
+        # Odotetaan TYPE-avainsanaa
         self.expect_keyword("type")
         name_tok = self.expect_ident()
 
@@ -273,17 +274,18 @@ class Parser:
         methods = []
         current_visibility = "public"
 
+        # Paikkamerkki AI-palasia varten
         # === AI_INSERT_POINT:TYPE_BODY ===
-        # AI-palasia voidaan liittää tähän
-        # type_keyword_handlers["shared"] = lambda: self.parseSharedField(current_visibility)
+        # AI voi lisätä uusia käsittelijöitä tähän sanakirjaan
         # </AI_INSERT_POINT>
 
+        # Helper: päivittää näkyvyyden
         def set_visibility(vis):
             nonlocal current_visibility
             current_visibility = vis
             return None
 
-        # Sanakirja TYPE-body avainsanoille
+        # TYPE-body sanakirja
         type_keyword_handlers = {
             "public": lambda: set_visibility("public"),
             "private": lambda: set_visibility("private"),
@@ -291,17 +293,25 @@ class Parser:
             "static": lambda: self.parseStaticField(current_visibility),
         }
 
-        # Turvallinen silmukka TYPE-bodyyn
+        # TYPE-body silmukka
         while True:
             tok = self.current()
+
+            # Lopetusehto: END TYPE
             if tok.type == "KEYWORD" and tok.value.lower() == "end":
                 break
 
-            v = tok.value.lower() if tok.type == "KEYWORD" else None
             handled = False
+            v = tok.value.lower() if tok.type == "KEYWORD" else None
 
-            if v in type_keyword_handlers:
+            # 1️⃣ Käsitellään avainsanat sanakirjalla
+            if tok.type == "KEYWORD" and v in type_keyword_handlers:
                 node = type_keyword_handlers[v]()
+                # Varmista aina eteneminen, jos handler ei siirrä tokenia
+                if self.current() == tok:
+                    self.advance()
+
+                # Lisää AST:ään
                 if node:
                     if isinstance(node, MethodNode):
                         methods.append(node)
@@ -309,92 +319,23 @@ class Parser:
                         fields.append(node)
                 handled = True
 
+            # 2️⃣ IDENT → kenttä
             elif tok.type == "IDENT":
                 field = self.parseTypeField(current_visibility)
                 if field:
                     fields.append(field)
+                # parseTypeField etenee tokenissa itsessään
                 handled = True
 
-            # Jos tokenia ei käsitelty, edetään
+            # 3️⃣ Jos token ei ollut käsitelty, siirrytään seuraavaan
             if not handled:
                 self.advance()
 
-        # odotetaan "end type"
+        # Odotetaan END TYPE
         self.expect_keyword("end")
         self.expect_keyword("type")
 
-        # Luo AST-solmu
-        type_node = TypeNode(name_tok.value, fields, methods)
-
-        # Symbolitaulu
-        type_symbol = TypeSymbol(type_node.name, type_node.fields, type_node.methods)
-        for f in type_node.fields:
-            if getattr(f, "is_static", False):
-                type_symbol.static_fields.append(f)
-        self.symbol_table.addType(type_symbol)
-
-        return type_node
- 
-        self.expect_keyword("type")
-        name_tok = self.expect_ident()
-
-        fields = []
-        methods = []
-        current_visibility = "public"
-
-        # === AI_INSERT_POINT:TYPE_BODY ===
-        # AI-palasia voidaan liittää tähän
-        # Esim:
-        # type_keyword_handlers["shared"] = lambda: self.parseSharedField(current_visibility)
-        # </AI_INSERT_POINT>
-
-        # Helper-funktio näkyvyydelle
-        def set_visibility(vis):
-            nonlocal current_visibility
-            current_visibility = vis
-            return None
-
-        # Sanakirja TYPE-body avainsanoille
-        type_keyword_handlers = {
-            "public": lambda: set_visibility("public"),
-            "private": lambda: set_visibility("private"),
-            "declare": lambda: self.parseTypeMethod(current_visibility),
-            "static": lambda: self.parseStaticField(current_visibility),
-        }
-
-        # Silmukka TYPE-bodyyn
-        while True:
-            tok = self.current()
-            if tok.type == "KEYWORD" and tok.value.lower() == "end":
-                break  # lopetetaan silmukka
-
-            v = tok.value.lower() if tok.type == "KEYWORD" else None
-            handler = type_keyword_handlers.get(v)
-
-            if handler:
-                node = handler()
-                if node:
-                    if isinstance(node, MethodNode):
-                        methods.append(node)
-                    elif isinstance(node, FieldNode):
-                        fields.append(node)
-                # Handler huolehtii edistymisestä
-                continue
-
-            if tok.type == "IDENT":
-                field = self.parseTypeField(current_visibility)
-                if field:
-                    fields.append(field)
-                continue  # parseTypeField huolehtii edistymisestä
-
-            # Jos token ei tunnisteta, edetään silti
-            self.advance()
-
-        # odotetaan "end type"
-        self.expect_keyword("end")
-        self.expect_keyword("type")
-
-        # Luo AST-solmu
+        # Luodaan AST-solmu
         type_node = TypeNode(name_tok.value, fields, methods)
 
         # Symbolitaulu
@@ -415,34 +356,24 @@ class Parser:
         type_tok = self.expect_ident()
         return FieldNode(name_tok.value, type_tok.value, visibility)
 
-    def parseTypeMethod(self, visibility="public"):
+# Esimerkki parseTypeMethod
+    def parseTypeMethod(self, visibility):
         self.expect_keyword("declare")
-        kind_tok = self.current()
-        if not (kind_tok.type == "KEYWORD" and kind_tok.value.lower() in ("sub", "function")):
+        tok = self.current()
+        if tok.type == "KEYWORD" and tok.value.lower() == "function":
+            self.advance()
+            name_tok = self.expect_ident()
+            # Käsittele parametrit ja paluuarvo
+            # ...
+            return MethodNode(name_tok.value, visibility)
+        elif tok.type == "KEYWORD" and tok.value.lower() == "sub":
+            self.advance()
+            name_tok = self.expect_ident()
+            return MethodNode(name_tok.value, visibility)
+        else:
+            # Jos ei function/sub → siirry seuraavaan
+            self.advance()
             return None
-        self.advance()
-        name_tok = self.expect_ident()
-        params = []
-        return_type = None
-        if self.current().value == "(":
-            depth = 0
-            while True:
-                tok = self.current()
-                if tok.value == "(":
-                    depth += 1
-                elif tok.value == ")":
-                    depth -= 1
-                    self.advance()
-                    if depth == 0:
-                        break
-                self.advance()
-                if tok.type == "EOF":
-                    break
-        if kind_tok.value.lower() == "function":
-            if self.match_keyword("as"):
-                rt_tok = self.expect_ident()
-                return_type = rt_tok.value
-        return MethodNode(name_tok.value, params, return_type, visibility)
 
     def parseDim(self):
         self.expect_keyword("dim")
@@ -485,15 +416,15 @@ class Parser:
                 self.symbol_table.addVariable(vs)
         return dim_node
 
-    def parseStaticField(self, visibility="public"):
-        self.advance()
+    def parseStaticField(self, visibility):
+        self.expect_keyword("static")
         name_tok = self.expect_ident()
-        if not self.match_keyword("as"):
-            return None
-        type_tok = self.expect_ident()
-        node = FieldNode(name_tok.value, type_tok.value, visibility)
-        node.is_static = True
-        return node
+        self.expect_keyword("as")
+        type_tok = self.expect_ident()  # tyyppi
+        self.advance()  # Varmistaa etenemisen
+
+        return FieldNode(name_tok.value, type_tok.value, visibility, is_static=True)
+
 
 
 # === AI_INSERT_POINT:UTILITY_FUNCTIONS ===
