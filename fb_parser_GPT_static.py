@@ -275,6 +275,75 @@ class Parser:
 
         # === AI_INSERT_POINT:TYPE_BODY ===
         # AI-palasia voidaan liittää tähän
+        # type_keyword_handlers["shared"] = lambda: self.parseSharedField(current_visibility)
+        # </AI_INSERT_POINT>
+
+        def set_visibility(vis):
+            nonlocal current_visibility
+            current_visibility = vis
+            return None
+
+        # Sanakirja TYPE-body avainsanoille
+        type_keyword_handlers = {
+            "public": lambda: set_visibility("public"),
+            "private": lambda: set_visibility("private"),
+            "declare": lambda: self.parseTypeMethod(current_visibility),
+            "static": lambda: self.parseStaticField(current_visibility),
+        }
+
+        # Turvallinen silmukka TYPE-bodyyn
+        while True:
+            tok = self.current()
+            if tok.type == "KEYWORD" and tok.value.lower() == "end":
+                break
+
+            v = tok.value.lower() if tok.type == "KEYWORD" else None
+            handled = False
+
+            if v in type_keyword_handlers:
+                node = type_keyword_handlers[v]()
+                if node:
+                    if isinstance(node, MethodNode):
+                        methods.append(node)
+                    elif isinstance(node, FieldNode):
+                        fields.append(node)
+                handled = True
+
+            elif tok.type == "IDENT":
+                field = self.parseTypeField(current_visibility)
+                if field:
+                    fields.append(field)
+                handled = True
+
+            # Jos tokenia ei käsitelty, edetään
+            if not handled:
+                self.advance()
+
+        # odotetaan "end type"
+        self.expect_keyword("end")
+        self.expect_keyword("type")
+
+        # Luo AST-solmu
+        type_node = TypeNode(name_tok.value, fields, methods)
+
+        # Symbolitaulu
+        type_symbol = TypeSymbol(type_node.name, type_node.fields, type_node.methods)
+        for f in type_node.fields:
+            if getattr(f, "is_static", False):
+                type_symbol.static_fields.append(f)
+        self.symbol_table.addType(type_symbol)
+
+        return type_node
+ 
+        self.expect_keyword("type")
+        name_tok = self.expect_ident()
+
+        fields = []
+        methods = []
+        current_visibility = "public"
+
+        # === AI_INSERT_POINT:TYPE_BODY ===
+        # AI-palasia voidaan liittää tähän
         # Esim:
         # type_keyword_handlers["shared"] = lambda: self.parseSharedField(current_visibility)
         # </AI_INSERT_POINT>
@@ -294,11 +363,14 @@ class Parser:
         }
 
         # Silmukka TYPE-bodyyn
-        while not (self.current().type == "KEYWORD" and self.current().value.lower() == "end"):
+        while True:
             tok = self.current()
-            v = tok.value.lower() if tok.type == "KEYWORD" else None
+            if tok.type == "KEYWORD" and tok.value.lower() == "end":
+                break  # lopetetaan silmukka
 
+            v = tok.value.lower() if tok.type == "KEYWORD" else None
             handler = type_keyword_handlers.get(v)
+
             if handler:
                 node = handler()
                 if node:
@@ -306,19 +378,19 @@ class Parser:
                         methods.append(node)
                     elif isinstance(node, FieldNode):
                         fields.append(node)
-                self.advance()  # tärkeää: edetään seuraavaan tokeniin
+                # Handler huolehtii edistymisestä
                 continue
 
             if tok.type == "IDENT":
                 field = self.parseTypeField(current_visibility)
                 if field:
                     fields.append(field)
-                self.advance()  # tärkeää
-                continue
+                continue  # parseTypeField huolehtii edistymisestä
 
-            # jos token ei tunnistu, edetään silti
+            # Jos token ei tunnisteta, edetään silti
             self.advance()
 
+        # odotetaan "end type"
         self.expect_keyword("end")
         self.expect_keyword("type")
 
@@ -334,6 +406,7 @@ class Parser:
 
         return type_node
 
+#======================================
 
     def parseTypeField(self, visibility="public"):
         name_tok = self.expect_ident()
