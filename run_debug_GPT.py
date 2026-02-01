@@ -13,7 +13,9 @@ KELTAINEN = '\033[93m'
 LOPPU = '\033[0m'
 
 def aja_testi():
-    testitiedosto = os.path.join(os.path.dirname(__file__), "testikoodi.bas")
+    file = "dim.bas"
+    filepath = "Freebasic_statements"
+    testitiedosto = os.path.join(os.path.dirname(__file__), filepath, file)
     try:
         with open(testitiedosto, "r", encoding="utf-8", errors="ignore") as f:
             koodi = f.read()

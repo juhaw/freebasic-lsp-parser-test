@@ -270,9 +270,11 @@ class Parser:
                 sub_parser = Parser(tokens, self.symbol_table, os.path.dirname(full_path))
                 sub_parser.parseBlock()
         else:
+            tok = self.current()  # <-- tässä määritellään tok
             while self.current().type != "EOF" and self.current().line == tok.line:
                 self.advance()
         return None
+
 
     def parseVisibility(self):
         tok = self.current()
@@ -284,55 +286,76 @@ class Parser:
             return vis
         return None
 
+#==================================
     def parseType(self):
-        self.expect("KEYWORD", "type")
-        name_tok = self.expect("IDENT")
-        fields = []
-        methods = []
+        """Pääfunktio Type-lohkolle."""
+        self.expect("KEYWORD", "Type")
+        type_name_tok = self.expect("IDENT")
+        tnode = TypeNode(name=type_name_tok.value, fields=[], methods=[])
+        self.symbol_table.addType(TypeSymbol(tnode.name, [], []))
+
         current_visibility = "public"
 
         while True:
             tok = self.current()
-            if tok.type == "KEYWORD" and tok.value.lower() == "end":
-                break
-            # käsittele public/private näkyvyydet
-            if tok.type == "KEYWORD" and tok.value.lower() in ("public", "private"):
-                current_visibility = tok.value.lower()
-                self.advance()
-                self.match("COMMA")
-                self.match("KEYWORD", ":")
-                continue
-            # käsittele declare function/sub metodit
-            if tok.type == "KEYWORD" and tok.value.lower() == "declare":
-                method = self.parseTypeMethod(current_visibility)
-                if method:
-                    methods.append(method)
-                continue
-            # tavalliset kentät: IDENT as IDENT
+            if tok.type == "KEYWORD":
+                val = tok.value.lower()
+
+                # Lopetus
+                if val == "end" and self.peek().value.lower() == "type":
+                    self.advance()
+                    self.advance()
+                    break
+
+                # Näkyvyys
+                elif val in ("public", "private"):
+                    current_visibility = val
+                    self.advance()
+                    if self.current().type == "KEYWORD" and self.current().value == ":":
+                        self.advance()
+                    continue
+
+                # Static kenttä
+                elif val == "static":
+                    fnode = self.parseStaticField(current_visibility)
+                    tnode.fields.append(fnode)
+                    continue
+
+                # DIM kenttä
+                elif val == "dim":
+                    dim_node = self.parseDim()
+                    for n, t in zip(dim_node.names, [dim_node.type_name]*len(dim_node.names)):
+                        fnode = FieldNode(n, t, current_visibility)
+                        tnode.fields.append(fnode)
+                    continue
+
+            # Plain kenttä: IDENT AS IDENT
             if tok.type == "IDENT":
-                field = self.parseTypeField(current_visibility)
-                if field:
-                    fields.append(field)
+                fnode = self.parsePlainField(current_visibility)
+                tnode.fields.append(fnode)
                 continue
-            # jos mikään ei osu, ohita token
+
+            # Declare Method
+            if tok.type == "KEYWORD" and tok.value.lower() == "declare":
+                mnode = self.parseTypeMethod(current_visibility)
+                if mnode:
+                    tnode.methods.append(mnode)
+                continue
+
             self.advance()
 
-        self.expect("KEYWORD", "end")
-        self.expect("KEYWORD", "type")
+        return tnode
 
-        type_node = TypeNode(name_tok.value, fields, methods)
-        type_symbol = TypeSymbol(type_node.name, type_node.fields, type_node.methods)
-        for f in type_node.fields:
-            if f.is_static:
-                type_symbol.static_fields.append(f)
-        self.symbol_table.addType(type_symbol)
-
-        return type_node
-    
+    def parsePlainField(self, visibility="public"):
+        """Käsittelee tavallisen kentän IDENT AS IDENT"""
+        name_tok = self.expect("IDENT")
+        self.expect("KEYWORD", "as")
+        type_tok = self.expect("IDENT")
+        return FieldNode(name_tok.value, type_tok.value, visibility)
 
 
 
-
+#=================================
     def _set_visibility(self, vis, current_vis):
         current_vis = vis
         self.advance()
@@ -390,27 +413,107 @@ class Parser:
                 params.append((param_name, param_type))
                 self.match("COMMA")
         return params
+#=============================================
 
     def parseDim(self):
+        """Pääfunktio DIM-lauseelle."""
         self.expect("KEYWORD", "dim")
-        names = []
-        type_name = None
+        shared = False
+        if self.match("KEYWORD", "shared"):
+            shared = True
+
+        # Valitse DBNF:n mukainen polku
+        if self.match("KEYWORD", "as"):
+            type_name, variables = self.parseDimAsType()
+        else:
+            variables, type_name = self.parseDimNamesThenType()
+
+        # Arrayt ja initializer
+        array_bounds = []
+        initializer = None
+        for i, var in enumerate(variables):
+            bounds, init = self.parseDimVarExtras()
+            array_bounds.append(bounds)
+            if i == 0:  # vain ensimmäinen muuttuja saa initializer nykyisessä FB
+                initializer = init
+
+            # Lisää symbolitauluun
+            self.symbol_table.addVariable(VariableSymbol(var, type_name))
+
+        node = DimNode(variables, type_name)
+        node.array_bounds = array_bounds
+        node.initializer = initializer
+        node.shared = shared
+        return node
+
+    def parseDimAsType(self):
+        """DIM AS TypeName var1, var2 ..."""
+        type_name = self.expect("IDENT").value
+        variables = []
         while True:
-            tok = self.current()
-            if tok.type in ("IDENT", "KEYWORD"):
-                names.append(tok.value)
-                self.advance()
-            else:
-                break
+            var_tok = self.expect("IDENT")
+            variables.append(var_tok.value)
             if not self.match("COMMA"):
                 break
+        return type_name, variables
+
+    def parseDimNamesThenType(self):
+        """DIM var1, var2 ... AS TypeName"""
+        variables = []
+        type_name = None
+
+        # Kerää nimet
+        while True:
+            tok = self.current()
+            if tok.type != "IDENT":
+                break
+            var_name = tok.value
+            # suffix
+            suffix_map = {'$': 'String', '%': 'Integer', '#': 'Double', '!': 'Single', '&': 'LongInt'}
+            if var_name[-1:] in suffix_map:
+                type_name = suffix_map[var_name[-1:]]
+                var_name = var_name[:-1]
+            variables.append(var_name)
+            self.advance()
+            if not self.match("COMMA"):
+                break
+
+        # As Type
         if self.match("KEYWORD", "as"):
             type_name = self.expect("IDENT").value
-            for n in names:
-                self.symbol_table.addVariable(VariableSymbol(n, type_name))
-        dim_node = DimNode(names, type_name)
-        return dim_node
 
+        return variables, type_name
+
+    def parseDimVarExtras(self):
+        """Käsittelee array bounds ja initializer jokaiselle muuttujalle."""
+        bounds = []
+        initializer = None
+
+        # Array spec
+        if self.match("KEYWORD", "("):
+            while not self.match("KEYWORD", ")"):
+                tok = self.current()
+                if tok.type == "NUMBER":
+                    bounds.append(int(tok.value))
+                elif tok.type == "KEYWORD" and tok.value.lower() == "to":
+                    bounds.append("to")
+                elif tok.type == "IDENT":
+                    bounds.append(tok.value)
+                elif tok.type == "KEYWORD" and tok.value == "...":
+                    bounds.append("...")
+                self.advance()
+
+        # Initializer
+        if self.match("KEYWORD", "=") or self.match("KEYWORD", "=>"):
+            init_tok = self.current()
+            initializer = init_tok.value
+            self.advance()
+
+        return bounds, initializer
+
+
+
+#================================================================
     def parseStaticField(self, visibility="public"):
         self.expect("KEYWORD", "static")
         name_tok = self.expect("IDENT")
