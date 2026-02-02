@@ -199,6 +199,25 @@ class Parser:
         registry.register_type_block_keyword("private", None)
         return registry
 
+    # Dataohjattu syntaksiperheiden määrittely
+    grammar_table = {
+        # Esimerkki syntaksiperhe DIM: ei vielä käytössä
+        "dim": {
+            "patterns": [
+                ["Dim", "Identifier", "As", "Type"],
+                ["Dim", "As", "Type", "Identifier"],
+                ["Dim", "Identifier", "=", "Expr"]
+            ],
+            "handler": "parseDim"
+        },
+
+        # Esimerkki instanssikomento: ei vielä käytössä
+        "instance_command": {
+            "pattern": ["Identifier", ".", "Identifier"],
+            "handler": "parseInstanceCommand"
+        }
+    }
+
 
     def __init__(self, tokens, symbol_table, base_path=""):
         self.tokens = tokens
@@ -416,80 +435,90 @@ class Parser:
 #=============================================
 
     def parseDim(self):
-        """Pääfunktio DIM-lauseelle."""
+        """Pääfunktio DIM-lauseelle, tukee kaikkia FreeBASICin muotoja."""
         self.expect("KEYWORD", "dim")
+
         shared = False
         if self.match("KEYWORD", "shared"):
             shared = True
 
-        # Valitse DBNF:n mukainen polku
+        variables = []
+        type_name = None
+
+        # Tarkista DIM AS Type -muoto
         if self.match("KEYWORD", "as"):
             type_name, variables = self.parseDimAsType()
         else:
             variables, type_name = self.parseDimNamesThenType()
 
-        # Arrayt ja initializer
-        array_bounds = []
+        # Arrayt ja initializerit jokaiselle muuttujalle
+        array_bounds_list = []
         initializer = None
-        for i, var in enumerate(variables):
+        for idx, var in enumerate(variables):
             bounds, init = self.parseDimVarExtras()
-            array_bounds.append(bounds)
-            if i == 0:  # vain ensimmäinen muuttuja saa initializer nykyisessä FB
+            array_bounds_list.append(bounds)
+            if idx == 0:  # FB sallii initializer vain ensimmäiselle muuttujalle
                 initializer = init
 
             # Lisää symbolitauluun
             self.symbol_table.addVariable(VariableSymbol(var, type_name))
 
         node = DimNode(variables, type_name)
-        node.array_bounds = array_bounds
+        node.array_bounds = array_bounds_list
         node.initializer = initializer
         node.shared = shared
         return node
+
 
     def parseDimAsType(self):
         """DIM AS TypeName var1, var2 ..."""
         type_name = self.expect("IDENT").value
         variables = []
+
         while True:
             var_tok = self.expect("IDENT")
             variables.append(var_tok.value)
             if not self.match("COMMA"):
                 break
+
         return type_name, variables
 
+
     def parseDimNamesThenType(self):
-        """DIM var1, var2 ... AS TypeName"""
+        """DIM var1, var2 ... AS TypeName tai suffix-muodot"""
         variables = []
         type_name = None
 
-        # Kerää nimet
         while True:
             tok = self.current()
             if tok.type != "IDENT":
                 break
             var_name = tok.value
-            # suffix
+
+            # Suffix-tuki (%, $, #, !, &)
             suffix_map = {'$': 'String', '%': 'Integer', '#': 'Double', '!': 'Single', '&': 'LongInt'}
             if var_name[-1:] in suffix_map:
                 type_name = suffix_map[var_name[-1:]]
                 var_name = var_name[:-1]
+
             variables.append(var_name)
             self.advance()
             if not self.match("COMMA"):
                 break
 
-        # As Type
+        # Jos rivillä on AS TypeName
         if self.match("KEYWORD", "as"):
             type_name = self.expect("IDENT").value
 
         return variables, type_name
+
 
     def parseDimVarExtras(self):
         """Käsittelee array bounds ja initializer jokaiselle muuttujalle."""
         bounds = []
         initializer = None
 
-        # Array spec
+        # Array-spesifikaatio
         if self.match("KEYWORD", "("):
             while not self.match("KEYWORD", ")"):
                 tok = self.current()
@@ -510,8 +539,6 @@ class Parser:
             self.advance()
 
         return bounds, initializer
-
-
 
 #================================================================
     def parseStaticField(self, visibility="public"):
