@@ -27,6 +27,30 @@ class KeywordRegistry:
         self.keywords.add(keyword.lower())
         self.type_block_handlers[keyword.lower()] = handler_func
 
+    @staticmethod
+    def create_default_registry():
+        registry = KeywordRegistry()
+        registry.register_statement("#include", Parser.parseInclude)
+        registry.register_statement("type", Parser.parseType)
+        registry.register_statement("dim", Parser.parseDim)
+        registry.register_statement("as", None)  # <-- lisätty
+        registry.register_type_block_keyword("declare", Parser.parseTypeMethod)
+        registry.register_type_block_keyword("static", Parser.parseStaticField)
+        registry.register_type_block_keyword("public", None)
+        registry.register_type_block_keyword("private", None)
+
+        # - lisäyskorvaus alkaa: Parser / create_default_registry / vaihe 21
+        registry.register_statement("end", None)
+        registry.register_statement("function", None)
+        registry.register_statement("sub", None)
+        registry.register_statement("shared", None)
+        registry.register_statement("to", None)
+        registry.register_statement("ptr", None)
+        # - lisäyskorvaus loppuu
+
+        return registry
+
+
     def is_keyword(self, value):
         """Tarkista onko annettu arvo rekisteröity avainsana."""
         return value.lower() in self.keywords
