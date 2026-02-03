@@ -212,13 +212,23 @@ class Parser:
         },
 
         "var_decl": {
-        "patterns": [
-            ["Identifier"],
-            ["Identifier", "ArraySpec"],
-            ["Identifier", "Initializer"],
-            ["Identifier", "ArraySpec", "Initializer"]
+            "patterns": [
+                ["Identifier"],
+                ["Identifier", "ArraySpec"],
+                ["Identifier", "Initializer"],
+                ["Identifier", "ArraySpec", "Initializer"]
     ],
             "handler": "parseVarDecl"
+        },
+        "type_grammar": {
+            "patterns": [
+                ["Identifier"],
+                ["Identifier", "*", "Number"],
+                ["Identifier", "Ptr"],
+                ["Identifier", "Ptr", "Ptr"],
+                ["Function", "(", "ParamList", ")", "As", "Type"]
+    ],
+    "handler": "parseTypeGrammar"
         },
     }
 
