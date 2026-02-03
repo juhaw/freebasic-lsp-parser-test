@@ -204,18 +204,12 @@ class Parser:
         # Esimerkki syntaksiperhe DIM: ei vielä käytössä
         "dim": {
             "patterns": [
-                ["Dim", "Identifier", "As", "Type"],
-                ["Dim", "As", "Type", "Identifier"],
-                ["Dim", "Identifier", "=", "Expr"]
+                ["Dim", "As", "Type", "Identifier"],              # DimAsFirst
+                ["Dim", "Identifier", "As", "Type"],              # DimVarFirst
+                ["Dim", "Type", "Identifier"]                     # DimTypeFirst
             ],
             "handler": "parseDim"
         },
-
-        # Esimerkki instanssikomento: ei vielä käytössä
-        "instance_command": {
-            "pattern": ["Identifier", ".", "Identifier"],
-            "handler": "parseInstanceCommand"
-        }
     }
 
 
@@ -267,6 +261,18 @@ class Parser:
 
     def parseStatement(self):
         tok = self.current()
+        # --- LISÄYS ALKAA ---
+        if tok.type == "KEYWORD":
+            entry = self.grammar_table.get(tok.value.lower())
+            if entry:
+                handler_name = entry.get("handler")
+                if handler_name:
+                    handler = getattr(self, handler_name, None)
+                    if handler:
+                        return handler()
+        # --- LISÄYS PÄÄTTYY ---
+        
+
         if tok.type == "KEYWORD":
             handler = self.statement_handlers.get(tok.value.lower())
             if handler:
