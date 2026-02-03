@@ -316,8 +316,38 @@ class Parser:
             "handler": "parseTypeSyntax"
         },
         # - lisäyskorvaus loppuu
-
-
+        "type_field": {
+            "patterns": [
+                ["Identifier", "As", "Type"]
+            ],
+            "handler": "parseTypeField"
+        },
+        "type_static_field": {
+            "patterns": [
+                ["Static", "Identifier", "As", "Type"]
+            ],
+            "handler": "parseStaticField"
+        },
+        "type_visibility_field": {
+            "patterns": [
+                ["Public", ":", "Identifier", "As", "Type"],
+                ["Private", ":", "Identifier", "As", "Type"]
+            ],
+            "handler": "parseTypeField"
+        },
+        "type_method": {
+            "patterns": [
+                ["Declare", "Function", "Identifier", "(", "ParamList", ")", "As", "Type"],
+                ["Declare", "Sub", "Identifier", "(", "ParamList", ")"]
+            ],
+            "handler": "parseTypeMethod"
+        },
+        "type_end": {
+            "patterns": [
+                ["End", "Type"]
+            ],
+            "handler": "parseType"
+        },
 
     }
 
@@ -486,8 +516,6 @@ class Parser:
         self.expect("KEYWORD", "as")
         type_tok = self.expect("IDENT")
         return FieldNode(name_tok.value, type_tok.value, visibility)
-
-
 
 #=================================
     def _set_visibility(self, vis, current_vis):

@@ -1,0 +1,48 @@
+            "handler": "parseTypeSyntax"
+        },
+        # - lisäyskorvaus loppuu
+
+<<<< VANHA start [Parser / grammar_table / A3 vaihe 1]
+    }
+>>>> VANHA end
+    def __init__(self, tokens, symbol_table, base_path=""):
+        self.tokens = tokens
+        self.pos = 0
+        self.symbol_table = symbol_table
+
+<<<< UUSI start
+        "type_field": {
+            "patterns": [
+                ["Identifier", "As", "Type"]
+            ],
+            "handler": "parseTypeField"
+        },
+        "type_static_field": {
+            "patterns": [
+                ["Static", "Identifier", "As", "Type"]
+            ],
+            "handler": "parseStaticField"
+        },
+        "type_visibility_field": {
+            "patterns": [
+                ["Public", ":", "Identifier", "As", "Type"],
+                ["Private", ":", "Identifier", "As", "Type"]
+            ],
+            "handler": "parseTypeField"
+        },
+        "type_method": {
+            "patterns": [
+                ["Declare", "Function", "Identifier", "(", "ParamList", ")", "As", "Type"],
+                ["Declare", "Sub", "Identifier", "(", "ParamList", ")"]
+            ],
+            "handler": "parseTypeMethod"
+        },
+        "type_end": {
+            "patterns": [
+                ["End", "Type"]
+            ],
+            "handler": "parseType"
+        },
+
+    }
+>>>> UUSI end
