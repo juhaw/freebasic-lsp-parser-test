@@ -704,6 +704,27 @@ class Parser:
         return None
     # - lisäyskorvaus loppuu
 
+    # - lisäyskorvaus alkaa: Parser / parseParamList / vaihe 17
+    def parseParamList(self):
+        """Stub-paramlist handler (vaihe 17)."""
+        items = []
+        tok = self.current()
+        if tok.type == "IDENT":
+            name = tok.value
+            self.advance()
+            items.append({"kind": "Param", "name": name})
+        while self.current().type == "COMMA":
+            self.advance()
+            tok = self.current()
+            if tok.type == "IDENT":
+                name = tok.value
+                self.advance()
+                items.append({"kind": "Param", "name": name})
+            else:
+                break
+        return {"kind": "ParamList", "items": items}
+    # - lisäyskorvaus loppuu
+
 
 
 # === AI_INSERT_POINT:UTILITY_FUNCTIONS ===
