@@ -217,7 +217,7 @@ class Parser:
                 ["Identifier", "ArraySpec"],
                 ["Identifier", "Initializer"],
                 ["Identifier", "ArraySpec", "Initializer"]
-    ],
+            ],
             "handler": "parseVarDecl"
         },
         "type_grammar": {
@@ -227,9 +227,24 @@ class Parser:
                 ["Identifier", "Ptr"],
                 ["Identifier", "Ptr", "Ptr"],
                 ["Function", "(", "ParamList", ")", "As", "Type"]
-    ],
-    "handler": "parseTypeGrammar"
+            ],
+            "handler": "parseTypeGrammar"
         },
+        # - lisäyskorvaus alkaa: Parser / grammar_table / expr / vaihe 8
+        "expr": {
+            "patterns": [
+                ["Number"],
+                ["Identifier"],
+                ["Identifier", "(", "ExprList", ")"],
+                ["Expr", "+", "Expr"],
+                ["Expr", "-", "Expr"],
+                ["Expr", "*", "Expr"],
+                ["Expr", "/", "Expr"]
+            ],
+            "handler": "parseExpr"
+        },
+        # - lisäyskorvaus loppuu
+
     }
 
 
