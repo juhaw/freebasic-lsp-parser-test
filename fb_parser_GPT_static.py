@@ -254,6 +254,17 @@ class Parser:
         },
         # - lisäyskorvaus loppuu
 
+        # - lisäyskorvaus alkaa: Parser / grammar_table / arrayspec / vaihe 12
+        "arrayspec": {
+            "patterns": [
+                ["(", "Expr", ")"],
+                ["(", "Expr", "TO", "Expr", ")"]
+            ],
+            "handler": "parseArraySpec"
+        },
+        # - lisäyskorvaus loppuu
+
+
     }
 
 
