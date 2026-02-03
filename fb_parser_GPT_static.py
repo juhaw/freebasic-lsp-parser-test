@@ -244,6 +244,15 @@ class Parser:
             "handler": "parseExpr"
         },
         # - lisäyskorvaus loppuu
+        # - lisäyskorvaus alkaa: Parser / grammar_table / exprlist / vaihe 10
+        "exprlist": {
+            "patterns": [
+                ["Expr"],
+                ["Expr", "COMMA", "ExprList"]
+            ],
+            "handler": "parseExprList"
+        },
+        # - lisäyskorvaus loppuu
 
     }
 
