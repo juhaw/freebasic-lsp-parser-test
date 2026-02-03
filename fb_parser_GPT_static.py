@@ -210,6 +210,16 @@ class Parser:
             ],
             "handler": "parseDim"
         },
+
+        "var_decl": {
+        "patterns": [
+            ["Identifier"],
+            ["Identifier", "ArraySpec"],
+            ["Identifier", "Initializer"],
+            ["Identifier", "ArraySpec", "Initializer"]
+    ],
+            "handler": "parseVarDecl"
+        },
     }
 
 
