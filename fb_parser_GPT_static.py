@@ -631,6 +631,23 @@ class Parser:
         return None
     # - lisäyskorvaus loppuu
 
+    # - lisäyskorvaus alkaa: Parser / parseExprList / vaihe 11
+    def parseExprList(self):
+        """Stub-exprlist handler (vaihe 11)."""
+        items = []
+        expr = self.parseExpr()
+        if expr:
+            items.append(expr)
+        while self.current().type == "COMMA":
+            self.advance()
+            expr = self.parseExpr()
+            if expr:
+                items.append(expr)
+            else:
+                break
+        return {"kind": "ExprList", "items": items}
+    # - lisäyskorvaus loppuu
+
 
 # === AI_INSERT_POINT:UTILITY_FUNCTIONS ===
 # Alustetaan rekisteri nyt, kun Parser on täysin määritelty
