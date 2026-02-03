@@ -272,6 +272,16 @@ class Parser:
             "handler": "parseInitializer"
         },
         # - lisäyskorvaus loppuu
+        # - lisäyskorvaus alkaa: Parser / grammar_table / paramlist / vaihe 16
+        "paramlist": {
+            "patterns": [
+                ["Param"],
+                ["Param", "COMMA", "ParamList"]
+            ],
+            "handler": "parseParamList"
+        },
+        # - lisäyskorvaus loppuu
+
 
 
     }
