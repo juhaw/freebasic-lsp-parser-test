@@ -659,6 +659,20 @@ class Parser:
         return {"kind": "ExprList", "items": items}
     # - lisäyskorvaus loppuu
 
+    # - lisäyskorvaus alkaa: Parser / parseArraySpec / vaihe 13
+    def parseArraySpec(self):
+        """Stub-arrayspec handler (vaihe 13)."""
+        items = []
+        if self.match("KEYWORD", "("):
+            # read until ')'
+            while not self.match("KEYWORD", ")"):
+                tok = self.current()
+                items.append(tok.value)
+                self.advance()
+        return {"kind": "ArraySpec", "items": items}
+    # - lisäyskorvaus loppuu
+
+
 
 # === AI_INSERT_POINT:UTILITY_FUNCTIONS ===
 # Alustetaan rekisteri nyt, kun Parser on täysin määritelty
