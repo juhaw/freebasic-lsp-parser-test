@@ -611,6 +611,17 @@ class Parser:
         return None
     # - lisäyskorvaus loppuu
 
+    # - lisäyskorvaus alkaa: Parser / parseExpr / vaihe 9
+    def parseExpr(self):
+        """Stub-expr handler (vaihe 9)."""
+        tok = self.current()
+        if tok.type in ("NUMBER", "IDENT"):
+            value = tok.value
+            self.advance()
+            return {"kind": "Expr", "value": value}
+        return None
+    # - lisäyskorvaus loppuu
+
 
 # === AI_INSERT_POINT:UTILITY_FUNCTIONS ===
 # Alustetaan rekisteri nyt, kun Parser on täysin määritelty
