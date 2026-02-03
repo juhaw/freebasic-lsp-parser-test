@@ -681,6 +681,19 @@ class Parser:
         return {"kind": "ArraySpec", "items": items}
     # - lisäyskorvaus loppuu
 
+    # - lisäyskorvaus alkaa: Parser / parseInitializer / vaihe 15
+    def parseInitializer(self):
+        """Stub-initializer handler (vaihe 15)."""
+        items = []
+        tok = self.current()
+        if tok.type == "KEYWORD" and tok.value in ("=", "=>"):
+            op = tok.value
+            self.advance()
+            expr = self.parseExpr()
+            return {"kind": "Initializer", "op": op, "expr": expr}
+        return None
+    # - lisäyskorvaus loppuu
+
 
 
 # === AI_INSERT_POINT:UTILITY_FUNCTIONS ===
