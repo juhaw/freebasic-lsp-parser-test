@@ -736,6 +736,18 @@ class Parser:
         return {"kind": "ParamList", "items": items}
     # - lisäyskorvaus loppuu
 
+    # - lisäyskorvaus alkaa: Parser / parseTypeSyntax / vaihe 19
+    def parseTypeSyntax(self):
+        """Stub-type_syntax handler (vaihe 19)."""
+        tok = self.current()
+        if tok.type == "IDENT":
+            name = tok.value
+            self.advance()
+            return {"kind": "TypeSyntax", "name": name}
+        return None
+    # - lisäyskorvaus loppuu
+
+
 
 
 # === AI_INSERT_POINT:UTILITY_FUNCTIONS ===
