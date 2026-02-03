@@ -574,7 +574,7 @@ class Parser:
         type_tok = self.expect("IDENT")
         return FieldNode(name_tok.value, type_tok.value, visibility, is_static=True)
 
-# - lisäyskorvaus alkaa: Parser / parseVarDecl / vaihe 5
+    # - lisäyskorvaus alkaa: Parser / parseVarDecl / vaihe 5
     def parseVarDecl(self):
         """Stub-var_decl handler (vaihe 5)."""
         tok = self.current()
@@ -583,7 +583,19 @@ class Parser:
             self.advance()
             return {"kind": "VarDecl", "name": name}
         return None
-# - lisäyskorvaus loppuu
+    # - lisäyskorvaus loppuu
+
+    # - lisäyskorvaus alkaa: Parser / parseTypeGrammar / vaihe 7
+    def parseTypeGrammar(self):
+        """Stub-type_grammar handler (vaihe 7)."""
+        tok = self.current()
+        if tok.type == "IDENT":
+            name = tok.value
+            self.advance()
+            return {"kind": "TypeGrammar", "name": name}
+        return None
+    # - lisäyskorvaus loppuu
+
 
 # === AI_INSERT_POINT:UTILITY_FUNCTIONS ===
 # Alustetaan rekisteri nyt, kun Parser on täysin määritelty
