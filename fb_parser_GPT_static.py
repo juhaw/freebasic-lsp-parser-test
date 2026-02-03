@@ -263,6 +263,15 @@ class Parser:
             "handler": "parseArraySpec"
         },
         # - lisäyskorvaus loppuu
+        # - lisäyskorvaus alkaa: Parser / grammar_table / initializer / vaihe 14
+        "initializer": {
+            "patterns": [
+                ["=", "Expr"],
+                ["=>", "Expr"]
+            ],
+            "handler": "parseInitializer"
+        },
+        # - lisäyskorvaus loppuu
 
 
     }
