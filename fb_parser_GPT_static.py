@@ -281,6 +281,17 @@ class Parser:
             "handler": "parseParamList"
         },
         # - lisäyskorvaus loppuu
+        # - lisäyskorvaus alkaa: Parser / grammar_table / type_syntax / vaihe 18
+        "type_syntax": {
+            "patterns": [
+                ["Identifier"],
+                ["Identifier", "*", "Number"],
+                ["Identifier", "Ptr"],
+                ["Identifier", "Ptr", "Ptr"]
+            ],
+            "handler": "parseTypeSyntax"
+        },
+        # - lisäyskorvaus loppuu
 
 
 
