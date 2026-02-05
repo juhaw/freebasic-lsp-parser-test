@@ -213,134 +213,40 @@ class Parser:
     @staticmethod
     def create_default_registry():
         registry = KeywordRegistry()
-        registry.register_statement("#include", Parser.parseInclude)
-        registry.register_statement("type", Parser.parseType)
+
+        registry.keywords.add("#include")
+
         registry.register_statement("dim", Parser.parseDim)
-        registry.register_statement("as", None)  # <-- lisätty
+        registry.register_statement("as", None)
+
         registry.register_type_block_keyword("declare", Parser.parseTypeMethod)
         registry.register_type_block_keyword("static", Parser.parseStaticField)
         registry.register_type_block_keyword("public", None)
         registry.register_type_block_keyword("private", None)
+
         return registry
 
     # Dataohjattu syntaksiperheiden määrittely
     grammar_table = {
-        # Esimerkki syntaksiperhe DIM: ei vielä käytössä
+        "include": {
+            "patterns": [
+                ["#include", "\"", "IDENT", "\""]
+            ],
+            "handler": "parseInclude"
+        },
         "dim": {
             "patterns": [
-                ["Dim", "As", "Type", "Identifier"],              # DimAsFirst
-                ["Dim", "Identifier", "As", "Type"],              # DimVarFirst
-                ["Dim", "Type", "Identifier"]                     # DimTypeFirst
+                ["Dim", "IDENT", "As", "IDENT"],
+                ["Dim", "IDENT", "As", "IDENT"],
+                ["Dim", "IDENT", "IDENT"]
             ],
             "handler": "parseDim"
         },
-
-        "var_decl": {
+        "type_start": {
             "patterns": [
-                ["Identifier"],
-                ["Identifier", "ArraySpec"],
-                ["Identifier", "Initializer"],
-                ["Identifier", "ArraySpec", "Initializer"]
+                ["Type", "IDENT"]
             ],
-            "handler": "parseVarDecl"
-        },
-        "type_grammar": {
-            "patterns": [
-                ["Identifier"],
-                ["Identifier", "*", "Number"],
-                ["Identifier", "Ptr"],
-                ["Identifier", "Ptr", "Ptr"],
-                ["Function", "(", "ParamList", ")", "As", "Type"]
-            ],
-            "handler": "parseTypeGrammar"
-        },
-        # - lisäyskorvaus alkaa: Parser / grammar_table / expr / vaihe 8
-        "expr": {
-            "patterns": [
-                ["Number"],
-                ["Identifier"],
-                ["Identifier", "(", "ExprList", ")"],
-                ["Expr", "+", "Expr"],
-                ["Expr", "-", "Expr"],
-                ["Expr", "*", "Expr"],
-                ["Expr", "/", "Expr"]
-            ],
-            "handler": "parseExpr"
-        },
-        # - lisäyskorvaus loppuu
-        # - lisäyskorvaus alkaa: Parser / grammar_table / exprlist / vaihe 10
-        "exprlist": {
-            "patterns": [
-                ["Expr"],
-                ["Expr", "COMMA", "ExprList"]
-            ],
-            "handler": "parseExprList"
-        },
-        # - lisäyskorvaus loppuu
-
-        # - lisäyskorvaus alkaa: Parser / grammar_table / arrayspec / vaihe 12
-        "arrayspec": {
-            "patterns": [
-                ["(", "Expr", ")"],
-                ["(", "Expr", "TO", "Expr", ")"]
-            ],
-            "handler": "parseArraySpec"
-        },
-        # - lisäyskorvaus loppuu
-        # - lisäyskorvaus alkaa: Parser / grammar_table / initializer / vaihe 14
-        "initializer": {
-            "patterns": [
-                ["=", "Expr"],
-                ["=>", "Expr"]
-            ],
-            "handler": "parseInitializer"
-        },
-        # - lisäyskorvaus loppuu
-        # - lisäyskorvaus alkaa: Parser / grammar_table / paramlist / vaihe 16
-        "paramlist": {
-            "patterns": [
-                ["Param"],
-                ["Param", "COMMA", "ParamList"]
-            ],
-            "handler": "parseParamList"
-        },
-        # - lisäyskorvaus loppuu
-        # - lisäyskorvaus alkaa: Parser / grammar_table / type_syntax / vaihe 18
-        "type_syntax": {
-            "patterns": [
-                ["Identifier"],
-                ["Identifier", "*", "Number"],
-                ["Identifier", "Ptr"],
-                ["Identifier", "Ptr", "Ptr"]
-            ],
-            "handler": "parseTypeSyntax"
-        },
-        # - lisäyskorvaus loppuu
-        "type_field": {
-            "patterns": [
-                ["Identifier", "As", "Type"]
-            ],
-            "handler": "parseTypeField"
-        },
-        "type_static_field": {
-            "patterns": [
-                ["Static", "Identifier", "As", "Type"]
-            ],
-            "handler": "parseStaticField"
-        },
-        "type_visibility_field": {
-            "patterns": [
-                ["Public", ":", "Identifier", "As", "Type"],
-                ["Private", ":", "Identifier", "As", "Type"]
-            ],
-            "handler": "parseTypeField"
-        },
-        "type_method": {
-            "patterns": [
-                ["Declare", "Function", "Identifier", "(", "ParamList", ")", "As", "Type"],
-                ["Declare", "Sub", "Identifier", "(", "ParamList", ")"]
-            ],
-            "handler": "parseTypeMethod"
+            "handler": "parseType"
         },
         "type_end": {
             "patterns": [
@@ -348,7 +254,100 @@ class Parser:
             ],
             "handler": "parseType"
         },
-
+        "var_decl": {
+            "patterns": [
+                ["IDENT"],
+                ["IDENT", "ArraySpec"],
+                ["IDENT", "Initializer"],
+                ["IDENT", "ArraySpec", "Initializer"]
+            ],
+            "handler": "parseVarDecl"
+        },
+        "type_grammar": {
+            "patterns": [
+                ["IDENT"],
+                ["IDENT", "*", "NUMBER"],
+                ["IDENT", "Ptr"],
+                ["IDENT", "Ptr", "Ptr"],
+                ["Function", "(", "ParamList", ")", "As", "IDENT"]
+            ],
+            "handler": "parseTypeGrammar"
+        },
+        "expr": {
+            "patterns": [
+                ["NUMBER"],
+                ["IDENT"],
+                ["IDENT", "(", "ExprList", ")"],
+                ["Expr", "+", "Expr"],
+                ["Expr", "-", "Expr"],
+                ["Expr", "*", "Expr"],
+                ["Expr", "/", "Expr"]
+            ],
+            "handler": "parseExpr"
+        },
+        "exprlist": {
+            "patterns": [
+                ["Expr"],
+                ["Expr", "COMMA", "ExprList"]
+            ],
+            "handler": "parseExprList"
+        },
+        "arrayspec": {
+            "patterns": [
+                ["(", "Expr", ")"],
+                ["(", "Expr", "To", "Expr", ")"]
+            ],
+            "handler": "parseArraySpec"
+        },
+        "initializer": {
+            "patterns": [
+                ["=", "Expr"],
+                ["=>", "Expr"]
+            ],
+            "handler": "parseInitializer"
+        },
+        "paramlist": {
+            "patterns": [
+                ["Param"],
+                ["Param", "COMMA", "ParamList"]
+            ],
+            "handler": "parseParamList"
+        },
+        "type_syntax": {
+            "patterns": [
+                ["IDENT"],
+                ["IDENT", "*", "NUMBER"],
+                ["IDENT", "Ptr"],
+                ["IDENT", "Ptr", "Ptr"]
+            ],
+            "handler": "parseTypeSyntax"
+        },
+        "type_field": {
+            "patterns": [
+                ["IDENT", "As", "IDENT"]
+            ],
+            "handler": "parseTypeField"
+        },
+        "type_static_field": {
+            "patterns": [
+                ["Static", "IDENT", "As", "IDENT"]
+            ],
+            "handler": "parseStaticField"
+        },
+        "type_visibility_field": {
+            "patterns": [
+                ["Public", ":", "IDENT", "As", "IDENT"],
+                ["Private", ":", "IDENT", "As", "IDENT"]
+            ],
+            "handler": "parseTypeField"
+        },
+        "type_method": {
+            "patterns": [
+                ["Declare", "Function", "IDENT", "(", "ParamList", ")", "As", "IDENT"],
+                ["Declare", "Sub", "IDENT", "(", "ParamList", ")"]
+            ],
+            "handler": "parseTypeMethod"
+        }
     }
 
 

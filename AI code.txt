@@ -1,8 +1,124 @@
 :CLASS: Parser
-:FUNCTION: parseStatement
-    def parseStatement(self):
-        node = self._dispatch_grammar()
-        if node is not None:
-            return node
-        self.advance()
-        return None
+:VARIABLE: grammar_table
+    grammar_table = {
+        "include": {
+            "patterns": [
+                ["#include", "\"", "IDENT", "\""]
+            ],
+            "handler": "parseInclude"
+        },
+        "dim": {
+            "patterns": [
+                ["Dim", "IDENT", "As", "IDENT"],
+                ["Dim", "IDENT", "As", "IDENT"],
+                ["Dim", "IDENT", "IDENT"]
+            ],
+            "handler": "parseDim"
+        },
+        "type_start": {
+            "patterns": [
+                ["Type", "IDENT"]
+            ],
+            "handler": "parseType"
+        },
+        "type_end": {
+            "patterns": [
+                ["End", "Type"]
+            ],
+            "handler": "parseType"
+        },
+        "var_decl": {
+            "patterns": [
+                ["IDENT"],
+                ["IDENT", "ArraySpec"],
+                ["IDENT", "Initializer"],
+                ["IDENT", "ArraySpec", "Initializer"]
+            ],
+            "handler": "parseVarDecl"
+        },
+        "type_grammar": {
+            "patterns": [
+                ["IDENT"],
+                ["IDENT", "*", "NUMBER"],
+                ["IDENT", "Ptr"],
+                ["IDENT", "Ptr", "Ptr"],
+                ["Function", "(", "ParamList", ")", "As", "IDENT"]
+            ],
+            "handler": "parseTypeGrammar"
+        },
+        "expr": {
+            "patterns": [
+                ["NUMBER"],
+                ["IDENT"],
+                ["IDENT", "(", "ExprList", ")"],
+                ["Expr", "+", "Expr"],
+                ["Expr", "-", "Expr"],
+                ["Expr", "*", "Expr"],
+                ["Expr", "/", "Expr"]
+            ],
+            "handler": "parseExpr"
+        },
+        "exprlist": {
+            "patterns": [
+                ["Expr"],
+                ["Expr", "COMMA", "ExprList"]
+            ],
+            "handler": "parseExprList"
+        },
+        "arrayspec": {
+            "patterns": [
+                ["(", "Expr", ")"],
+                ["(", "Expr", "To", "Expr", ")"]
+            ],
+            "handler": "parseArraySpec"
+        },
+        "initializer": {
+            "patterns": [
+                ["=", "Expr"],
+                ["=>", "Expr"]
+            ],
+            "handler": "parseInitializer"
+        },
+        "paramlist": {
+            "patterns": [
+                ["Param"],
+                ["Param", "COMMA", "ParamList"]
+            ],
+            "handler": "parseParamList"
+        },
+        "type_syntax": {
+            "patterns": [
+                ["IDENT"],
+                ["IDENT", "*", "NUMBER"],
+                ["IDENT", "Ptr"],
+                ["IDENT", "Ptr", "Ptr"]
+            ],
+            "handler": "parseTypeSyntax"
+        },
+        "type_field": {
+            "patterns": [
+                ["IDENT", "As", "IDENT"]
+            ],
+            "handler": "parseTypeField"
+        },
+        "type_static_field": {
+            "patterns": [
+                ["Static", "IDENT", "As", "IDENT"]
+            ],
+            "handler": "parseStaticField"
+        },
+        "type_visibility_field": {
+            "patterns": [
+                ["Public", ":", "IDENT", "As", "IDENT"],
+                ["Private", ":", "IDENT", "As", "IDENT"]
+            ],
+            "handler": "parseTypeField"
+        },
+        "type_method": {
+            "patterns": [
+                ["Declare", "Function", "IDENT", "(", "ParamList", ")", "As", "IDENT"],
+                ["Declare", "Sub", "IDENT", "(", "ParamList", ")"]
+            ],
+            "handler": "parseTypeMethod"
+        }
+    }

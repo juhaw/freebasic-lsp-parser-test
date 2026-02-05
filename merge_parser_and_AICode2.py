@@ -41,21 +41,23 @@ def nayta_muutos():
     blocks = []
     current_block = []
     lines = ai_text.strip().split('\n')
+    tunnisteet = (':FUNCTION:', ':CLASS:', ':VARIABLE:')
     
     i = 0
     while i < len(lines):
         line = lines[i].strip()
-        if line.startswith(':FUNCTION:') or line.startswith(':CLASS:'):
+        if any(line.startswith(t) for t in tunnisteet):
             if current_block:
                 blocks.append('\n'.join(current_block))
             current_block = [line]
+            
             if i + 1 < len(lines):
                 next_line = lines[i + 1].strip()
-                if next_line.startswith(':FUNCTION:') or next_line.startswith(':CLASS:'):
+                if any(next_line.startswith(t) for t in tunnisteet):
                     current_block.append(next_line)
                     i += 1
             i += 1
-            while i < len(lines) and not lines[i].strip().startswith(':FUNCTION:') and not lines[i].strip().startswith(':CLASS:'):
+            while i < len(lines) and not any(lines[i].strip().startswith(t) for t in tunnisteet):
                 current_block.append(lines[i])
                 i += 1
             continue
@@ -64,7 +66,7 @@ def nayta_muutos():
         blocks.append('\n'.join(current_block))
 
     if not blocks:
-        print("❌ Ei löytynyt koodilohkoja AI-vastauksesta.")
+        print("❌ Ei löytynyt koodilohkoja (:FUNCTION:, :CLASS:, :VARIABLE:) AI-vastauksesta.")
         return None
 
     print(f"\n📁 Kohdetiedosto: {TARGET_FILE}")
@@ -74,97 +76,103 @@ def nayta_muutos():
 
     for i, block in enumerate(blocks, 1):
         try:
-            lines = block.strip().split('\n')
-            match_start = -1
-            target_name = ""
-
-            # Tunnista onko kyseessä Luokka, Metodi vai Funktio
-            if lines[0].startswith(':CLASS:'):
-                class_name = lines[0].split(':CLASS:')[1].strip()
-                if len(lines) > 1 and lines[1].startswith(':FUNCTION:'):
-                    func_name = lines[1].split(':FUNCTION:')[1].strip()
-                    target_name = f"{class_name}.{func_name}"
-                    code_to_insert = '\n'.join(lines[2:])
+            raw_lines = block.split('\n')
+            
+            # --- KORJATTU KOODIN ALUN ETSINTÄ (SÄILYTTÄÄ @STATICMETHOD) ---
+            header_lines = []
+            code_start_idx = 0
+            for idx, line in enumerate(raw_lines):
+                clean = line.strip()
+                if any(clean.startswith(t) for t in tunnisteet):
+                    header_lines.append(clean)
+                    code_start_idx = idx + 1
+                elif not clean:
+                    if code_start_idx == idx:
+                        code_start_idx = idx + 1
                 else:
-                    target_name = f"Class: {class_name}"
-                    code_to_insert = '\n'.join(lines[1:])
-            else:
-                func_name = lines[0].split(':FUNCTION:')[1].strip()
-                target_name = f"Function: {func_name}"
-                code_to_insert = '\n'.join(lines[1:])
+                    code_start_idx = idx
+                    break
+            # -------------------------------------------------------------
 
-            print(f"\n{'='*60}")
-            print(f"KÄSITTELLÄÄN {i}/{len(blocks)}: {CYAN}{target_name}{RESET}")
+            class_name = next((l.split(':CLASS:')[1].strip() for l in header_lines if ':CLASS:' in l), None)
+            var_name = next((l.split(':VARIABLE:')[1].strip() for l in header_lines if ':VARIABLE:' in l), None)
+            func_name = next((l.split(':FUNCTION:')[1].strip() for l in header_lines if ':FUNCTION:' in l), None)
+            
+            is_variable = var_name is not None
+            item_name = var_name if is_variable else func_name
+            code_to_insert = '\n'.join(raw_lines[code_start_idx:]).rstrip()
 
-            # Etsi sijainti tiedostosta
-            if '.' in target_name:
-                c_name, m_name = target_name.split('.')
-                class_pattern = rf'class\s+{re.escape(c_name)}\s*[:\(]'
-                class_match = re.search(class_pattern, modified_content)
-                if class_match:
-                    class_start = class_match.start()
-                    after_class = modified_content[class_start:]
-                    method_pattern = rf'\n([ \t]+)def\s+{re.escape(m_name)}\s*\('
-                    m_match = re.search(method_pattern, after_class)
-                    if m_match:
-                        match_start = class_start + m_match.start() + 1 # +1 ohittaa \n
-            elif 'Class:' in target_name:
-                c_name = target_name.replace('Class: ', '')
-                pattern = rf'class\s+{re.escape(c_name)}\s*[:\(]'
-                m = re.search(pattern, modified_content)
-                if m: match_start = m.start()
+            match_start = -1
+            target_name = f"{class_name}.{item_name}" if class_name and item_name else (item_name or class_name)
+
+            # Sijainnin haku
+            if class_name:
+                c_match = re.search(rf'class\s+{re.escape(class_name)}\s*[:\(]', modified_content)
+                if c_match:
+                    after_c = modified_content[c_match.start():]
+                    p = rf'\n([ \t]+){re.escape(item_name)}\s*=' if is_variable else rf'\n([ \t]+)def\s+{re.escape(item_name)}\s*\('
+                    m = re.search(p, after_c)
+                    if m: match_start = c_match.start() + m.start() + 1
             else:
-                f_name = target_name.replace('Function: ', '')
-                pattern = rf'def\s+{re.escape(f_name)}\s*\('
-                m = re.search(pattern, modified_content)
+                p = rf'^{re.escape(item_name)}\s*=' if is_variable else rf'def\s+{re.escape(item_name)}\s*\('
+                m = re.search(p, modified_content, re.MULTILINE)
                 if m: match_start = m.start()
 
             if match_start == -1:
                 print(f"❌ Kohdetta '{target_name}' ei löytynyt koodista.")
                 continue
 
-            # ETSI LOPPU SISENNYKSEN PERUSTEELLA
-            content_from_start = modified_content[match_start:].split('\n')
-            indent_level = -1
-            end_line_idx = 0
+            # Lopun tunnistus
+            raw_after = modified_content[match_start:]
+            match_end = -1
+            first_line = raw_after.split('\n')[0]
             
-            for j, line in enumerate(content_from_start):
-                if j == 0: continue
-                if not line.strip(): continue # Hypätään tyhjien yli pääteltäessä tasoa
-                
-                curr_indent = len(line) - len(line.lstrip())
-                if indent_level == -1: indent_level = curr_indent
-                
-                if curr_indent < indent_level and line.strip():
-                    end_line_idx = j
-                    break
-            else:
-                end_line_idx = len(content_from_start)
-
-            # --- KORJAUS: POISTETAAN TYHJÄT RIVIT LOPUSTA ---
-            raw_lines = content_from_start[:end_line_idx]
-            while raw_lines and not raw_lines[-1].strip():
-                raw_lines.pop()
-                end_line_idx -= 1
+            if '{' in first_line:
+                bc, found = 0, False
+                for idx, char in enumerate(raw_after):
+                    if char == '{': bc += 1; found = True
+                    elif char == '}': bc -= 1
+                    if found and bc == 0:
+                        tail = raw_after[idx:].split('\n')[0]
+                        match_end = match_start + idx + len(tail)
+                        break
             
-            old_code = '\n'.join(raw_lines)
-            match_end = match_start + len('\n'.join(content_from_start[:end_line_idx]))
+            if match_end == -1:
+                c_lines = raw_after.split('\n')
+                indent = -1
+                e_idx = 0
+                for j, line in enumerate(c_lines):
+                    if j == 0: continue
+                    if not line.strip(): continue
+                    curr_indent = len(line) - len(line.lstrip())
+                    if indent == -1: indent = curr_indent
+                    if curr_indent < indent and line.strip():
+                        e_idx = j; break
+                else: e_idx = len(c_lines)
+                
+                final_b = c_lines[:e_idx]
+                while final_b and not final_b[-1].strip():
+                    final_b.pop()
+                    e_idx -= 1
+                match_end = match_start + len('\n'.join(c_lines[:e_idx]))
 
-            # RIVINUMERO (1-perusteinen)
+            old_code = modified_content[match_start:match_end]
             alku_rivi = len(modified_content[:match_start].split('\n'))
 
-            print(f"✅ Löytyi: {target_name} (Rivit {alku_rivi} - {alku_rivi + len(raw_lines) - 1})")
+            # --- TULOSTUS PUNAISELLA JA KELTAISELLA ---
+            print(f"\n{'='*60}")
+            print(f"KÄSITTELLÄÄN {i}/{len(blocks)}: {CYAN}{target_name}{RESET}")
+            print(f"✅ Löytyi kohde (Rivit {alku_rivi} - {alku_rivi + len(old_code.split('\n')) - 1})")
             
             print(f"\n{RED}POISTETAAN:{RESET}")
             for idx, line in enumerate(old_code.split('\n')):
                 print(f"{RED}{alku_rivi + idx:4}: {line}{RESET}")
 
             print(f"\n{YELLOW}UUSI KOODI:{RESET}")
-            new_code_clean = code_to_insert.rstrip()
-            for idx, line in enumerate(new_code_clean.split('\n')):
+            for idx, line in enumerate(code_to_insert.split('\n')):
                 print(f"{YELLOW}{alku_rivi + idx:4}: {line}{RESET}")
 
-            modified_content = modified_content[:match_start] + new_code_clean + modified_content[match_end:]
+            modified_content = modified_content[:match_start] + code_to_insert + modified_content[match_end:]
 
         except Exception as e:
             print(f"❌ Virhe lohkon käsittelyssä: {e}")
@@ -173,14 +181,7 @@ def nayta_muutos():
 
 if __name__ == "__main__":
     if os.name == 'nt': os.system('')
-    
-    paivitetty_sisalto = nayta_muutos()
-    
-    if paivitetty_sisalto:
-        vastaus = input("\n💾 Tallennetaanko muutokset? (k/e): ")
-        if vastaus.lower() == 'k':
-            tallenna_muutokset(paivitetty_sisalto)
-        else:
-            print("Tallennus peruttu.")
-    else:
-        print("Ei muutoksia tehtäväksi.")
+    paivitetty = nayta_muutos()
+    if paivitetty:
+        if input("\n💾 Tallennetaanko muutokset? (k/e): ").lower() == 'k':
+            tallenna_muutokset(paivitetty)
