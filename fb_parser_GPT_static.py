@@ -389,6 +389,33 @@ class Parser:
             return tok
         raise SyntaxError(f"Expected {type_} '{value}' at line {tok.line}, got {tok.type} '{tok.value}'")
 
+    def _match_pattern(self, pattern):
+        """
+        Yrittää matchata patternin nykyisestä token‑positiosta.
+        Pattern on lista merkkijonoja, esim:
+            ["Identifier", "As", "Type"]
+        Palauttaa True/False.
+        """
+        for i, pat in enumerate(pattern):
+            tok = self.peek(i)
+            # Normalisoi tokenin "symbolinen nimi"
+            tname = tok.type if tok.type != "KEYWORD" else tok.value.capitalize()
+
+            if tname.lower() != pat.lower():
+                return False
+        return True
+
+    def _dispatch_grammar(self):
+        for key, entry in self.grammar_table.items():
+            for pattern in entry["patterns"]:
+                if self._match_pattern(pattern):
+                    handler = getattr(self, entry["handler"], None)
+                    if handler:
+                        return handler()
+        return None
+
+
+
     # === PARSER LOGIC ===
     def parseBlock(self):
         nodes = []
@@ -399,25 +426,22 @@ class Parser:
         return nodes
 
     def parseStatement(self):
+        # --- GRAMMAR_TABLE DISPATCH (Vaihe 2) ---
+        node = self._dispatch_grammar()
+        if node is not None:
+            return node
+        # -----------------------------------------
+
         tok = self.current()
-        # --- LISÄYS ALKAA ---
-        if tok.type == "KEYWORD":
-            entry = self.grammar_table.get(tok.value.lower())
-            if entry:
-                handler_name = entry.get("handler")
-                if handler_name:
-                    handler = getattr(self, handler_name, None)
-                    if handler:
-                        return handler()
-        # --- LISÄYS PÄÄTTYY ---
-        
 
         if tok.type == "KEYWORD":
             handler = self.statement_handlers.get(tok.value.lower())
             if handler:
                 return handler(self)
+
         self.advance()
         return None
+
 
     def parseInclude(self):
         self.expect("KEYWORD", "#include")
