@@ -242,18 +242,6 @@ class Parser:
             ],
             "handler": "parseDim"
         },
-        "type_start": {
-            "patterns": [
-                ["Type", "IDENT"]
-            ],
-            "handler": "parseType"
-        },
-        "type_end": {
-            "patterns": [
-                ["End", "Type"]
-            ],
-            "handler": "parseType"
-        },
         "var_decl": {
             "patterns": [
                 ["IDENT"],
@@ -413,8 +401,6 @@ class Parser:
                         return handler()
         return None
 
-
-
     # === PARSER LOGIC ===
     def parseBlock(self):
         nodes = []
@@ -424,14 +410,21 @@ class Parser:
                 nodes.append(node)
         return nodes
 
-
     def parseStatement(self):
+        tok = self.current()
+        if tok.type == "KEYWORD" and tok.value.lower() == "type":
+            return self.parseTypeBlock()
+        if tok.type == "KEYWORD" and tok.value.lower() == "end":
+            nxt = self.peek()
+            if nxt.type == "KEYWORD" and nxt.value.lower() == "type":
+                self.advance()
+                self.advance()
+                return None
         node = self._dispatch_grammar()
         if node is not None:
             return node
         self.advance()
         return None
-
 
     def parseInclude(self):
         self.expect("KEYWORD", "#include")
@@ -453,7 +446,6 @@ class Parser:
                 self.advance()
         return None
 
-
     def parseVisibility(self):
         tok = self.current()
         if tok.type == "KEYWORD" and tok.value.lower() in ("public", "private"):
@@ -466,63 +458,7 @@ class Parser:
 
 #==================================
     def parseType(self):
-        """Pääfunktio Type-lohkolle."""
-        self.expect("KEYWORD", "Type")
-        type_name_tok = self.expect("IDENT")
-        tnode = TypeNode(name=type_name_tok.value, fields=[], methods=[])
-        self.symbol_table.addType(TypeSymbol(tnode.name, [], []))
-
-        current_visibility = "public"
-
-        while True:
-            tok = self.current()
-            if tok.type == "KEYWORD":
-                val = tok.value.lower()
-
-                # Lopetus
-                if val == "end" and self.peek().value.lower() == "type":
-                    self.advance()
-                    self.advance()
-                    break
-
-                # Näkyvyys
-                elif val in ("public", "private"):
-                    current_visibility = val
-                    self.advance()
-                    if self.current().type == "KEYWORD" and self.current().value == ":":
-                        self.advance()
-                    continue
-
-                # Static kenttä
-                elif val == "static":
-                    fnode = self.parseStaticField(current_visibility)
-                    tnode.fields.append(fnode)
-                    continue
-
-                # DIM kenttä
-                elif val == "dim":
-                    dim_node = self.parseDim()
-                    for n, t in zip(dim_node.names, [dim_node.type_name]*len(dim_node.names)):
-                        fnode = FieldNode(n, t, current_visibility)
-                        tnode.fields.append(fnode)
-                    continue
-
-            # Plain kenttä: IDENT AS IDENT
-            if tok.type == "IDENT":
-                fnode = self.parsePlainField(current_visibility)
-                tnode.fields.append(fnode)
-                continue
-
-            # Declare Method
-            if tok.type == "KEYWORD" and tok.value.lower() == "declare":
-                mnode = self.parseTypeMethod(current_visibility)
-                if mnode:
-                    tnode.methods.append(mnode)
-                continue
-
-            self.advance()
-
-        return tnode
+        return self.parseTypeBlock()
 
     def parsePlainField(self, visibility="public"):
         """Käsittelee tavallisen kentän IDENT AS IDENT"""
@@ -557,8 +493,6 @@ class Parser:
         type_tok = self.expect("IDENT")
         return FieldNode(name_tok.value, type_tok.value, visibility, is_static)
 
-
-
     def parseTypeMethod(self, visibility="public"):
         self.expect("KEYWORD", "declare")
         tok = self.current()
@@ -576,7 +510,6 @@ class Parser:
         else:
             self.advance()
             return None
-
 
     def parseParameters(self):
         params = []
@@ -626,7 +559,6 @@ class Parser:
         node.shared = shared
         return node
 
-
     def parseDimAsType(self):
         """DIM AS TypeName var1, var2 ..."""
         type_name = self.expect("IDENT").value
@@ -639,7 +571,6 @@ class Parser:
                 break
 
         return type_name, variables
-
 
     def parseDimNamesThenType(self):
         """DIM var1, var2 ... AS TypeName tai suffix-muodot"""
@@ -668,7 +599,6 @@ class Parser:
             type_name = self.expect("IDENT").value
 
         return variables, type_name
-
 
     def parseDimVarExtras(self):
         """Käsittelee array bounds ja initializer jokaiselle muuttujalle."""
@@ -715,7 +645,6 @@ class Parser:
             return {"kind": "VarDecl", "name": name}
         return None
     # - lisäyskorvaus loppuu
-
     # - lisäyskorvaus alkaa: Parser / parseTypeGrammar / vaihe 7
     def parseTypeGrammar(self):
         """Stub-type_grammar handler (vaihe 7)."""
@@ -726,7 +655,6 @@ class Parser:
             return {"kind": "TypeGrammar", "name": name}
         return None
     # - lisäyskorvaus loppuu
-
     # - lisäyskorvaus alkaa: Parser / parseExpr / vaihe 9
     def parseExpr(self):
         """Stub-expr handler (vaihe 9)."""
@@ -737,7 +665,6 @@ class Parser:
             return {"kind": "Expr", "value": value}
         return None
     # - lisäyskorvaus loppuu
-
     # - lisäyskorvaus alkaa: Parser / parseExprList / vaihe 11
     def parseExprList(self):
         """Stub-exprlist handler (vaihe 11)."""
@@ -754,7 +681,6 @@ class Parser:
                 break
         return {"kind": "ExprList", "items": items}
     # - lisäyskorvaus loppuu
-
     # - lisäyskorvaus alkaa: Parser / parseArraySpec / vaihe 13
     def parseArraySpec(self):
         """Stub-arrayspec handler (vaihe 13)."""
@@ -767,7 +693,6 @@ class Parser:
                 self.advance()
         return {"kind": "ArraySpec", "items": items}
     # - lisäyskorvaus loppuu
-
     # - lisäyskorvaus alkaa: Parser / parseInitializer / vaihe 15
     def parseInitializer(self):
         """Stub-initializer handler (vaihe 15)."""
@@ -780,7 +705,6 @@ class Parser:
             return {"kind": "Initializer", "op": op, "expr": expr}
         return None
     # - lisäyskorvaus loppuu
-
     # - lisäyskorvaus alkaa: Parser / parseParamList / vaihe 17
     def parseParamList(self):
         """Stub-paramlist handler (vaihe 17)."""
@@ -801,7 +725,6 @@ class Parser:
                 break
         return {"kind": "ParamList", "items": items}
     # - lisäyskorvaus loppuu
-
     # - lisäyskorvaus alkaa: Parser / parseTypeSyntax / vaihe 19
     def parseTypeSyntax(self):
         """Stub-type_syntax handler (vaihe 19)."""
@@ -815,7 +738,88 @@ class Parser:
 
 
 
-
 # === AI_INSERT_POINT:UTILITY_FUNCTIONS ===
 # Alustetaan rekisteri nyt, kun Parser on täysin määritelty
+
+    def parseExpr_at(self, pos):
+        """
+        Kokeile parsia Expr alkaen annetusta pos-indeksistä.
+        Ei muuta self.pos-arvoa.
+        Palauttaa (node, new_pos) tai (None, pos).
+        """
+        tokens = self.tokens
+        length = len(tokens)
+
+        # Jos pos on ulkona, ei matchia
+        if pos >= length:
+            return None, pos
+
+        tok = tokens[pos]
+
+        # 1) NUMBER → Expr
+        if tok.type == "NUMBER":
+            return {"kind": "Expr", "value": tok.value}, pos + 1
+
+        # 2) IDENT → Expr
+        if tok.type == "IDENT":
+            return {"kind": "Expr", "value": tok.value}, pos + 1
+
+        # 3) IDENT "(" ... ")"  (kokeiluversio funktiokutsulle)
+        if tok.type == "IDENT":
+            if pos + 1 < length and tokens[pos + 1].type == "(":
+                i = pos + 2
+                depth = 1
+                while i < length:
+                    if tokens[i].type == "(":
+                        depth += 1
+                    elif tokens[i].type == ")":
+                        depth -= 1
+                        if depth == 0:
+                            return {"kind": "ExprCall", "name": tok.value}, i + 1
+                    i += 1
+
+        # Ei matchia
+        return None, pos
 Tokenizer.KEYWORD_REGISTRY = Parser.create_default_registry()
+
+    def parseTypeBlock(self):
+        self.expect("KEYWORD", "Type")
+        type_name_tok = self.expect("IDENT")
+        tnode = TypeNode(name=type_name_tok.value, fields=[], methods=[])
+        self.symbol_table.addType(TypeSymbol(tnode.name, [], []))
+        current_visibility = "public"
+        while True:
+            tok = self.current()
+            if tok.type == "KEYWORD":
+                val = tok.value.lower()
+                if val == "end" and self.peek().type == "KEYWORD" and self.peek().value.lower() == "type":
+                    self.advance()
+                    self.advance()
+                    break
+                if val in ("public", "private"):
+                    current_visibility = val
+                    self.advance()
+                    if self.current().type == ":" or (self.current().type == "KEYWORD" and self.current().value == ":"):
+                        self.advance()
+                    continue
+                if val == "static":
+                    fnode = self.parseStaticField(current_visibility)
+                    tnode.fields.append(fnode)
+                    continue
+                if val == "dim":
+                    dim_node = self.parseDim()
+                    for n in dim_node.names:
+                        fnode = FieldNode(n, dim_node.type_name, current_visibility)
+                        tnode.fields.append(fnode)
+                    continue
+                if val == "declare":
+                    mnode = self.parseTypeMethod(current_visibility)
+                    if mnode:
+                        tnode.methods.append(mnode)
+                    continue
+            if tok.type == "IDENT":
+                fnode = self.parsePlainField(current_visibility)
+                tnode.fields.append(fnode)
+                continue
+            self.advance()
+        return tnode

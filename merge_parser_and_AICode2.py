@@ -1,187 +1,186 @@
 import re
 import os
 
-# === MUOKKAA NÄITÄ ===
+# === KONFIGURAATIO ===
 TARGET_FILE = 'fb_parser_GPT_static.py'
 AI_RESPONSE_FILE = 'AI code.txt'
-# =====================
 
 RED = '\033[91m'
-GREEN = '\033[92m'
 YELLOW = '\033[93m'
 CYAN = '\033[96m'
 RESET = '\033[0m'
 
-def tallenna_muutokset(uusi_sisalto):
-    if uusi_sisalto is None: return
+def lue_tiedosto(tiedosto):
     base_path = os.path.dirname(os.path.abspath(__file__))
-    target_path = os.path.join(base_path, TARGET_FILE)
+    path = os.path.join(base_path, tiedosto)
     try:
-        with open(target_path, 'w', encoding='utf-8', newline='') as f:
-            f.write(uusi_sisalto)
-        print(f"\n✅ Muutokset tallennettu tiedostoon: {TARGET_FILE}")
+        with open(path, 'r', encoding='utf-8', newline='') as f:
+            return f.read()
     except Exception as e:
-        print(f"\n❌ Virhe tallennettaessa: {e}")
-
-def nayta_muutos():
-    base_path = os.path.dirname(os.path.abspath(__file__))
-    target_path = os.path.join(base_path, TARGET_FILE)
-    ai_path = os.path.join(base_path, AI_RESPONSE_FILE)
-
-    try:
-        with open(target_path, 'r', encoding='utf-8', newline='') as f:
-            file_content = f.read()
-        with open(ai_path, 'r', encoding='utf-8') as f:
-            ai_text = f.read()
-    except Exception as e:
-        print(f"Virhe tiedostojen luvussa: {e}")
+        print(f"❌ Virhe luvussa ({tiedosto}): {e}")
         return None
 
-    # Lohkojen parsiminen AI-vastauksesta
-    blocks = []
-    current_block = []
-    lines = ai_text.strip().split('\n')
+def tallenna_tiedosto(tiedosto, sisalto):
+    base_path = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(base_path, tiedosto)
+    try:
+        with open(path, 'w', encoding='utf-8', newline='') as f:
+            f.write(sisalto)
+        print(f"✅ Muutokset tallennettu: {tiedosto}")
+        return True
+    except Exception as e:
+        print(f"❌ Virhe tallennuksessa: {e}")
+        return False
+
+def kasittele_lohko(block, nykyinen_sisalto):
+    raw_lines = block.split('\n')
+    header_lines = []
+    code_start_idx = 0
     tunnisteet = (':FUNCTION:', ':CLASS:', ':VARIABLE:')
+
+    for idx, line in enumerate(raw_lines):
+        clean = line.strip()
+        if any(clean.startswith(t) for t in tunnisteet):
+            header_lines.append(clean)
+            code_start_idx = idx + 1
+        elif not clean and code_start_idx == idx:
+            code_start_idx = idx + 1
+        elif header_lines:
+            code_start_idx = idx
+            break
+
+    class_name = next((l.split(':CLASS:')[1].strip() for l in header_lines if ':CLASS:' in l), None)
+    var_name = next((l.split(':VARIABLE:')[1].strip() for l in header_lines if ':VARIABLE:' in l), None)
+    func_name = next((l.split(':FUNCTION:')[1].strip() for l in header_lines if ':FUNCTION:' in l), None)
     
-    i = 0
-    while i < len(lines):
-        line = lines[i].strip()
-        if any(line.startswith(t) for t in tunnisteet):
-            if current_block:
-                blocks.append('\n'.join(current_block))
-            current_block = [line]
-            
-            if i + 1 < len(lines):
-                next_line = lines[i + 1].strip()
-                if any(next_line.startswith(t) for t in tunnisteet):
-                    current_block.append(next_line)
-                    i += 1
-            i += 1
-            while i < len(lines) and not any(lines[i].strip().startswith(t) for t in tunnisteet):
-                current_block.append(lines[i])
-                i += 1
-            continue
-        i += 1
-    if current_block:
-        blocks.append('\n'.join(current_block))
+    is_variable = var_name is not None
+    item_name = var_name if is_variable else func_name
 
-    if not blocks:
-        print("❌ Ei löytynyt koodilohkoja (:FUNCTION:, :CLASS:, :VARIABLE:) AI-vastauksesta.")
-        return None
+    if not item_name:
+        return nykyinen_sisalto
 
-    print(f"\n📁 Kohdetiedosto: {TARGET_FILE}")
-    print(f"📦 Löytyi {len(blocks)} päivityskohdetta")
-    
-    modified_content = file_content
+    code_to_insert = '\n'.join(raw_lines[code_start_idx:]).rstrip()
+    target_name = f"{class_name}.{item_name}" if class_name and item_name else (item_name or class_name)
 
-    for i, block in enumerate(blocks, 1):
-        try:
-            raw_lines = block.split('\n')
-            
-            # --- KORJATTU KOODIN ALUN ETSINTÄ (SÄILYTTÄÄ @STATICMETHOD) ---
-            header_lines = []
-            code_start_idx = 0
-            for idx, line in enumerate(raw_lines):
-                clean = line.strip()
-                if any(clean.startswith(t) for t in tunnisteet):
-                    header_lines.append(clean)
-                    code_start_idx = idx + 1
-                elif not clean:
-                    if code_start_idx == idx:
-                        code_start_idx = idx + 1
-                else:
-                    code_start_idx = idx
-                    break
-            # -------------------------------------------------------------
+    match_start = -1
+    if class_name:
+        c_match = re.search(rf'class\s+{re.escape(class_name)}\s*[:\(]', nykyinen_sisalto)
+        if c_match:
+            after_c = nykyinen_sisalto[c_match.start():]
+            p = rf'\n([ \t]+){re.escape(item_name)}\s*=' if is_variable else rf'\n([ \t]+)def\s+{re.escape(item_name)}\s*\('
+            m = re.search(p, after_c)
+            if m: match_start = c_match.start() + m.start() + 1
+    else:
+        p = rf'^{re.escape(item_name)}\s*=' if is_variable else rf'^def\s+{re.escape(item_name)}\s*\('
+        m = re.search(p, nykyinen_sisalto, re.MULTILINE)
+        if m: match_start = m.start()
 
-            class_name = next((l.split(':CLASS:')[1].strip() for l in header_lines if ':CLASS:' in l), None)
-            var_name = next((l.split(':VARIABLE:')[1].strip() for l in header_lines if ':VARIABLE:' in l), None)
-            func_name = next((l.split(':FUNCTION:')[1].strip() for l in header_lines if ':FUNCTION:' in l), None)
-            
-            is_variable = var_name is not None
-            item_name = var_name if is_variable else func_name
-            code_to_insert = '\n'.join(raw_lines[code_start_idx:]).rstrip()
+    if match_start != -1:
+        start_line_no = nykyinen_sisalto[:match_start].count('\n') + 1
+        raw_after = nykyinen_sisalto[match_start:]
+        c_lines = raw_after.split('\n')
+        
+        # --- PARANNETTU LOPUN TUNNISTUS ---
+        e_idx = 1
+        first_line = c_lines[0]
+        base_indent = len(first_line) - len(first_line.lstrip())
+        
+        # Tarkistetaan onko kyseessä sanakirja/lista
+        is_multiline_container = '{' in first_line or '[' in first_line or '(' in first_line
 
-            match_start = -1
-            target_name = f"{class_name}.{item_name}" if class_name and item_name else (item_name or class_name)
-
-            # Sijainnin haku
-            if class_name:
-                c_match = re.search(rf'class\s+{re.escape(class_name)}\s*[:\(]', modified_content)
-                if c_match:
-                    after_c = modified_content[c_match.start():]
-                    p = rf'\n([ \t]+){re.escape(item_name)}\s*=' if is_variable else rf'\n([ \t]+)def\s+{re.escape(item_name)}\s*\('
-                    m = re.search(p, after_c)
-                    if m: match_start = c_match.start() + m.start() + 1
-            else:
-                p = rf'^{re.escape(item_name)}\s*=' if is_variable else rf'def\s+{re.escape(item_name)}\s*\('
-                m = re.search(p, modified_content, re.MULTILINE)
-                if m: match_start = m.start()
-
-            if match_start == -1:
-                print(f"❌ Kohdetta '{target_name}' ei löytynyt koodista.")
+        for j, line in enumerate(c_lines):
+            if j == 0: continue
+            if not line.strip():
                 continue
-
-            # Lopun tunnistus
-            raw_after = modified_content[match_start:]
-            match_end = -1
-            first_line = raw_after.split('\n')[0]
             
-            if '{' in first_line:
-                bc, found = 0, False
-                for idx, char in enumerate(raw_after):
-                    if char == '{': bc += 1; found = True
-                    elif char == '}': bc -= 1
-                    if found and bc == 0:
-                        tail = raw_after[idx:].split('\n')[0]
-                        match_end = match_start + idx + len(tail)
-                        break
+            curr_indent = len(line) - len(line.lstrip())
             
-            if match_end == -1:
-                c_lines = raw_after.split('\n')
-                indent = -1
-                e_idx = 0
-                for j, line in enumerate(c_lines):
-                    if j == 0: continue
-                    if not line.strip(): continue
-                    curr_indent = len(line) - len(line.lstrip())
-                    if indent == -1: indent = curr_indent
-                    if curr_indent < indent and line.strip():
-                        e_idx = j; break
-                else: e_idx = len(c_lines)
-                
-                final_b = c_lines[:e_idx]
-                while final_b and not final_b[-1].strip():
-                    final_b.pop()
-                    e_idx -= 1
-                match_end = match_start + len('\n'.join(c_lines[:e_idx]))
-
-            old_code = modified_content[match_start:match_end]
-            alku_rivi = len(modified_content[:match_start].split('\n'))
-
-            # --- TULOSTUS PUNAISELLA JA KELTAISELLA ---
-            print(f"\n{'='*60}")
-            print(f"KÄSITTELLÄÄN {i}/{len(blocks)}: {CYAN}{target_name}{RESET}")
-            print(f"✅ Löytyi kohde (Rivit {alku_rivi} - {alku_rivi + len(old_code.split('\n')) - 1})")
+            # Jos ollaan sisennetty syvemmälle, koodi jatkuu varmasti
+            if curr_indent > base_indent:
+                e_idx = j + 1
+                continue
             
-            print(f"\n{RED}POISTETAAN:{RESET}")
-            for idx, line in enumerate(old_code.split('\n')):
-                print(f"{RED}{alku_rivi + idx:4}: {line}{RESET}")
+            # Jos ollaan samalla tasolla:
+            if curr_indent == base_indent:
+                # Jos rivi alkaa sulkevalla merkillä, se on viimeinen rivi
+                if line.strip().startswith(('}', ']', ')')):
+                    e_idx = j + 1
+                    break
+                # Jos muuttuja on jo saanut sisältöä ja tulee uusi muuttuja/funktio samalla tasolla
+                if any(line.strip().startswith(prefix) for prefix in ('def ', 'class ', 'self.')) or '=' in line:
+                    break
+                e_idx = j + 1
+            else:
+                # Sisennys pieneni -> lohko loppui
+                break
+        
+        match_end = match_start + len('\n'.join(c_lines[:e_idx]))
+        end_line_no = start_line_no + e_idx - 1
+        old_code = nykyinen_sisalto[match_start:match_end]
 
-            print(f"\n{YELLOW}UUSI KOODI:{RESET}")
-            for idx, line in enumerate(code_to_insert.split('\n')):
-                print(f"{YELLOW}{alku_rivi + idx:4}: {line}{RESET}")
+        print(f"\n🔄 KORVATAAN: {CYAN}{target_name}{RESET} (Rivit {start_line_no}-{end_line_no})")
+        print(f"{RED}--- POISTETTAVA ALKAA ---{RESET}")
+        print(f"{RED}{old_code}{RESET}")
+        print(f"{RED}--- POISTETTAVA LOPPUU ---{RESET}")
+        
+        # === MUUTOS: uuden koodin rivinumerot ===
+        new_line_count = code_to_insert.count('\n') + 1
+        new_start_line_no = start_line_no
+        new_end_line_no = new_start_line_no + new_line_count - 1
 
-            modified_content = modified_content[:match_start] + code_to_insert + modified_content[match_end:]
-
-        except Exception as e:
-            print(f"❌ Virhe lohkon käsittelyssä: {e}")
-    
-    return modified_content
+        print(
+            f"{YELLOW}--- UUSI ALKAA "
+            f"(Rivit {new_start_line_no}-{new_end_line_no}, "
+            f"Yhteensä {new_line_count} riviä) ---{RESET}"
+        )
+        print(f"{YELLOW}{code_to_insert}{RESET}")
+        print(f"{YELLOW}--- UUSI LOPPUU ---{RESET}")
+        
+        return nykyinen_sisalto[:match_start] + code_to_insert + nykyinen_sisalto[match_end:]
+    else:
+        print(f"\n✨ LISÄTÄÄN UUSI: {CYAN}{target_name}{RESET}")
+        return nykyinen_sisalto.rstrip() + '\n\n' + code_to_insert + '\n'
 
 if __name__ == "__main__":
     if os.name == 'nt': os.system('')
-    paivitetty = nayta_muutos()
-    if paivitetty:
-        if input("\n💾 Tallennetaanko muutokset? (k/e): ").lower() == 'k':
-            tallenna_muutokset(paivitetty)
+    ai_text = lue_tiedosto(AI_RESPONSE_FILE)
+    if not ai_text: exit()
+
+    blocks = []
+    current_lines = []
+    lines = ai_text.split('\n')
+
+    for line in lines:
+        clean = line.strip()
+        is_tag = any(clean.startswith(t) for t in (':FUNCTION:', ':VARIABLE:', ':CLASS:'))
+        if is_tag:
+            if current_lines:
+                last_was_class = current_lines[-1].strip().startswith(':CLASS:')
+                if (clean.startswith(':FUNCTION:') or clean.startswith(':VARIABLE:')) and last_was_class:
+                    current_lines.append(line)
+                elif clean.startswith(':CLASS:') or not last_was_class:
+                    blocks.append('\n'.join(current_lines))
+                    current_lines = [line]
+                else:
+                    current_lines.append(line)
+            else:
+                current_lines = [line]
+        else:
+            current_lines.append(line)
+    
+    if current_lines:
+        blocks.append('\n'.join(current_lines))
+
+    for i, block in enumerate(blocks, 1):
+        if not any(t in block for t in (':FUNCTION:', ':VARIABLE:')): continue
+        
+        print(f"\n--- KÄSITTELLÄÄN LOHKO {i}/{len(blocks)} ---")
+        sisalto = lue_tiedosto(TARGET_FILE)
+        uusi_sisalto = kasittele_lohko(block, sisalto)
+        
+        if uusi_sisalto != sisalto:
+            if input(f"\n💾 Tallennetaanko? (k/e): ").lower() == 'k':
+                tallenna_tiedosto(TARGET_FILE, uusi_sisalto)
+                pass
+
+    print("\n✨ Valmis.")
