@@ -130,6 +130,11 @@
         return None
 
 :CLASS: Parser
+:FUNCTION: parseType
+    def parseType(self):
+        return self.parseTypeBlock()
+
+:CLASS: Parser
 :FUNCTION: parseTypeBlock
     def parseTypeBlock(self):
         self.expect("KEYWORD", "Type")
@@ -172,8 +177,3 @@
                 continue
             self.advance()
         return tnode
-
-:CLASS: Parser
-:FUNCTION: parseType
-    def parseType(self):
-        return self.parseTypeBlock()

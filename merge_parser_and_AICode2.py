@@ -139,6 +139,39 @@ def kasittele_lohko(block, nykyinen_sisalto):
         return nykyinen_sisalto[:match_start] + code_to_insert + nykyinen_sisalto[match_end:]
     else:
         print(f"\n✨ LISÄTÄÄN UUSI: {CYAN}{target_name}{RESET}")
+
+        # === MUUTOS: metodi luokan sisälle ===
+        if class_name:
+            c_match = re.search(
+                rf'class\s+{re.escape(class_name)}\s*[:\(]',
+                nykyinen_sisalto
+            )
+            if c_match:
+                after_c = nykyinen_sisalto[c_match.start():]
+                lines = after_c.split('\n')
+                class_line = lines[0]
+                class_indent = len(class_line) - len(class_line.lstrip())
+
+                insert_idx = 1
+                for i, line in enumerate(lines[1:], 1):
+                    if not line.strip():
+                        continue
+                    indent = len(line) - len(line.lstrip())
+                    if indent <= class_indent:
+                        insert_idx = i
+                        break
+                    insert_idx = i + 1
+
+                insert_pos = c_match.start() + len('\n'.join(lines[:insert_idx]))
+                return (
+                    nykyinen_sisalto[:insert_pos]
+                    + '\n'
+                    + code_to_insert
+                    + '\n'
+                    + nykyinen_sisalto[insert_pos:]
+                )
+
+        # fallback: tiedoston loppuun
         return nykyinen_sisalto.rstrip() + '\n\n' + code_to_insert + '\n'
 
 if __name__ == "__main__":
@@ -180,7 +213,7 @@ if __name__ == "__main__":
         
         if uusi_sisalto != sisalto:
             if input(f"\n💾 Tallennetaanko? (k/e): ").lower() == 'k':
-                tallenna_tiedosto(TARGET_FILE, uusi_sisalto)
+                # tallenna_tiedosto(TARGET_FILE, uusi_sisalto)
                 pass
 
     print("\n✨ Valmis.")

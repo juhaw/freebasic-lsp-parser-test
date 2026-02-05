@@ -780,8 +780,7 @@ class Parser:
 
         # Ei matchia
         return None, pos
-Tokenizer.KEYWORD_REGISTRY = Parser.create_default_registry()
-
+    
     def parseTypeBlock(self):
         self.expect("KEYWORD", "Type")
         type_name_tok = self.expect("IDENT")
@@ -823,3 +822,7 @@ Tokenizer.KEYWORD_REGISTRY = Parser.create_default_registry()
                 continue
             self.advance()
         return tnode
+
+
+Tokenizer.KEYWORD_REGISTRY = Parser.create_default_registry()
+
