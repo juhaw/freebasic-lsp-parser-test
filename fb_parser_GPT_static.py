@@ -32,7 +32,7 @@ class KeywordRegistry:
         registry = KeywordRegistry()
         registry.register_statement("#include", Parser.parseInclude)
         registry.register_statement("type", Parser.parseType)
-        registry.register_statement("dim", Parser.parseDim)
+        
         registry.register_statement("as", None)  # <-- lisätty
         registry.register_type_block_keyword("declare", Parser.parseTypeMethod)
         registry.register_type_block_keyword("static", Parser.parseStaticField)
@@ -425,20 +425,11 @@ class Parser:
                 nodes.append(node)
         return nodes
 
+
     def parseStatement(self):
-        # --- GRAMMAR_TABLE DISPATCH (Vaihe 2) ---
         node = self._dispatch_grammar()
         if node is not None:
             return node
-        # -----------------------------------------
-
-        tok = self.current()
-
-        if tok.type == "KEYWORD":
-            handler = self.statement_handlers.get(tok.value.lower())
-            if handler:
-                return handler(self)
-
         self.advance()
         return None
 

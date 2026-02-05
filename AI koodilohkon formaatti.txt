@@ -1,0 +1,24 @@
+======================================================
+Formaatti koodilohkoon koodin lisäystä varten
+======================================================
+Toimi tästä eteenpäin seuraavasti, kun ehdotat koodimuutoksia. Käytä tätä tarkkaa formaattia, jotta automaatiotyökaluni voi suorittaa korvauksen.
+
+Anna kaikki yhdessä koodilohkossa.
+
+1. Anna tunniste:
+   - :FUNCTION: [funktion nimi]  (tavalliselle funktiolle)
+   tai
+   - :CLASS: [luokan nimi]       (koko luokalle)
+   tai  
+   - :CLASS: [luokan nimi]
+     :FUNCTION: [funktion nimi]  (luokan metodille)
+
+2. Kirjoita koko funktio/luokka:
+   - Kirjoita koko funktion/luokan sisältö
+   - Sisällytä kaikki rivit
+   - Korvaa vanha versio kokonaan tällä uudella
+
+SÄÄNNÖT:
+- Älä lisää ylimääräistä tekstiä
+- Älä lisää kommentteja
+- Noudata tarkasti tunnisteformaattia
