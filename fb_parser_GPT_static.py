@@ -370,6 +370,7 @@ class Parser:
                     if handler: return handler()
         return None
 
+
     def parseBlock(self):
         nodes = []
         while self.current().type != "EOF":
@@ -699,56 +700,61 @@ class Parser:
         return tok
     def parseMethodImplementation(self):
         token = self.advance()
-        # method_type on esim. 'sub', 'function', 'constructor' tai 'destructor'
         method_type = token.value.lower()
 
+        # Luetaan nimi (esim. "Kangaroo" tai "Kangaroo.jump_set")
         full_name = ""
-        # Kerätään nimi, jos se seuraa avainsanaa (esim. 'Kangaroo.jump_set')
         while self.current().type in ("IDENT", "DOT"):
             full_name += self.current().value
             self.advance()
 
-        # Jos nimeä ei löytynyt (esim. pelkkä 'Constructor'), käytetään tyyppiä nimenä
-        # TÄSSÄ KOHTAA 'Kangaroo' voi tulla nimeksi jos 'Constructor' on jo syöty
+        # Jos nimeä ei löytynyt (pelkkä Constructor ilman nimeä), käytetään tyyppiä
         if not full_name:
             full_name = method_type
 
-        # Ohitetaan parametrit ja paluutyypit, ne eivät vaikuta tähän ongelmaan
         params = []
         if self.match("LPAREN"):
             while self.current().type != "RPAREN" and self.current().type != "EOF":
-                p_name = self.expect("IDENT").value
-                self.expect("KEYWORD", "as")
-                p_type = self.expect("IDENT").value
-                params.append((p_name, p_type))
-                if not self.match("COMMA"):
+                if self.current().type == "IDENT":
+                    p_name = self.advance().value
+                    p_type = "Any"
+                    if self.match("KEYWORD", "as"):
+                        if self.current().type == "IDENT":
+                            p_type = self.advance().value
+                    params.append((p_name, p_type))
+                if self.match("COMMA"):
+                    continue
+                if self.current().type == "RPAREN":
                     break
+                self.advance()
             self.expect("RPAREN")
 
         return_type = "Void"
         if self.match("KEYWORD", "as"):
-            return_type = self.expect("IDENT").value
+            if self.current().type == "IDENT":
+                return_type = self.advance().value
 
-        # --- RATKAISU ---
-        # 1. Jos nimessä on piste (Kangaroo.jump_set) -> se on luokan metodi.
-        # 2. Jos method_type on constructor/destructor -> se on luokan metodi.
-        # 3. Jos full_name on 'Kangaroo' ja meillä on tyyppi sen nimisenä -> se on luokan metodi.
+        # --- KRIITTINEN KORJAUS TÄSSÄ ---
+        # 1. Onko tämä tyypin sisällä (Declare)?
+        is_inside_type = self.current_type is not None
+        # 2. Onko tämä toteutus (sisältää pisteen tai on Constructor/Destructor globaalilla tasolla)?
+        is_impl = "." in full_name or method_type in ("constructor", "destructor")
 
-        is_class_member = (
-            "." in full_name or 
-            method_type in ("constructor", "destructor") or 
-            full_name.lower() in ("kangaroo", "constructor", "destructor")
-        )
-
-        if not is_class_member:
+        # Lisätään symbolitauluun VAIN jos se on globaali funktion deklaraatio 
+        # (eli ei olla tyypin sisällä EIKÄ kyseessä ole metodin toteutus)
+        if not is_inside_type and not is_impl:
             self.symbol_table.addVariable(VariableSymbol(full_name, f"{method_type.capitalize()} returning {return_type}"))
 
-        # Skipataan rungon sisältö 'end' -sanaan asti
-        while self.current().type != "EOF":
-            if self.match("KEYWORD", "end"):
-                self.advance() # Ohitetaan 'sub'/'function' tms.
-                break
-            self.advance()
+        # Skipataan runko vain jos kyseessä ei ole deklaraatio
+        if not is_inside_type:
+            while self.current().type != "EOF":
+                if self.current().value.lower() == "end":
+                    next_t = self.peek(1)
+                    if next_t and next_t.value.lower() == method_type:
+                        self.advance() # end
+                        self.advance() # sub/function/constructor/destructor
+                        break
+                self.advance()
 
         return MethodNode(full_name, return_type, params)
     def _handle_type_property(self, visibility, tnode):
@@ -883,6 +889,42 @@ class Parser:
                 break
 
         return None
+    def parseTypeDeclaration(self):
+        self.expect("KEYWORD", "type")
+        type_name = self.expect("IDENT").value
+
+        self.current_type = type_name
+        self.symbol_table.addType(type_name)
+
+        fields = []
+        methods = []
+
+        while self.current().type != "EOF":
+            if self.current().value.lower() == "end":
+                if self.peek(1) and self.peek(1).value.lower() == "type":
+                    break
+
+            if self.match("KEYWORD", "declare"):
+                method_node = self.parseMethodImplementation()
+                methods.append(method_node)
+            elif self.current().type == "IDENT":
+                field_name = self.advance().value
+                self.expect("KEYWORD", "as")
+                field_type = self.expect("IDENT").value
+                fields.append((field_name, field_type))
+                self.symbol_table.addVariable(VariableSymbol(field_name, field_type, type_name))
+            else:
+                self.advance()
+
+        type_node = TypeNode(type_name, fields, methods)
+
+        if self.match("KEYWORD", "end"):
+            if self.match("KEYWORD", "type"):
+                self.current_type = None
+                return type_node
+
+        self.current_type = None
+        return type_node
 
 
 Tokenizer.KEYWORD_REGISTRY = KeywordRegistry.create_default_registry()

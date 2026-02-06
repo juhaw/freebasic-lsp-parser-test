@@ -34,6 +34,53 @@ def tallenna_tiedosto(tiedosto, sisalto):
         return False
 
 
+
+def nayta_muutos_raportti(tyyppi, kohde, v_alku, v_loppu, u_alku, u_loppu, vanha_koodi, uusi_koodi):
+    """
+    Tulostaa koodit ensin ja raportin viimeiseksi.
+    Muutos ja Tyyppi on sijoitettu samalle riville tiiviyden vuoksi.
+    """
+    # 1. TULOSTETAAN KOODIT ENSIN
+    if v_alku != -1 and vanha_koodi.strip():
+        print(f"\n{RED}--- ALKUPERÄINEN KOODI ---{RESET}")
+        print(f"{RED}{vanha_koodi}{RESET}")
+    
+    print(f"\n{YELLOW}--- UUSI KOODI ---{RESET}")
+    print(f"{YELLOW}{uusi_koodi}{RESET}")
+
+    # 2. LASKETAAN RIVIT JA PÄÄTELLÄÄN TYYPPI
+    v_lkm = len(vanha_koodi.splitlines()) if vanha_koodi else 0
+    u_lkm = len(uusi_koodi.splitlines()) if uusi_koodi else 0
+    
+    if "." in kohde:
+        k_tyyppi = "LUOKAN METODI"
+    elif any(x in kohde.lower() for x in ["variable", "dict", "lista", "data"]):
+        k_tyyppi = "MUUTTUJA / DATA"
+    elif kohde and kohde[0].isupper():
+        k_tyyppi = "LUOKKA"
+    else:
+        k_tyyppi = "FUNKTIO"
+
+    # 3. TULOSTETAAN RAPORTTI VIIMEISENÄ
+    print(f"\n{'='*65}")
+    print(f"📊 {CYAN}YHTEENVETO MUUTOKSESTA{RESET}")
+    print(f"   Kohde:    {CYAN}{kohde}{RESET}")
+    
+    # TÄSSÄ MUUTOS: Muutos ja Tyyppi samalla rivillä
+    print(f"   Muutos:   {YELLOW}{tyyppi}{RESET}  |  Tyyppi: {YELLOW}{k_tyyppi}{RESET}")
+    
+    print(f"{'-'*65}")
+    
+    # Faktat: ALKUPERÄINEN (Aloitus/Lopetusrivi + Kokonaismäärä)
+    if v_alku != -1:
+        print(f"   {RED}VANHA:{RESET} Rivit {v_alku}-{v_loppu} ({v_lkm} riviä)")
+    else:
+        print(f"   {RED}VANHA:{RESET} (Uusi kohde)")
+        
+    # Faktat: UUSI (Aloitus/Lopetusrivi + Kokonaismäärä)
+    print(f"   {YELLOW}UUSI: {RESET} Rivit {u_alku}-{u_loppu} ({u_lkm} riviä)")
+    print(f"{'='*65}\n")
+
 def kasittele_lohko(block, nykyinen_sisalto):
     raw_lines = block.split('\n')
     header_lines = []
@@ -42,7 +89,6 @@ def kasittele_lohko(block, nykyinen_sisalto):
 
     for idx, line in enumerate(raw_lines):
         clean = line.strip()
-        # Käytetään stripattuja tunnisteita vertailuun
         if any(clean.startswith(t) for t in tunnisteet):
             header_lines.append(clean)
             code_start_idx = idx + 1
@@ -52,7 +98,6 @@ def kasittele_lohko(block, nykyinen_sisalto):
             code_start_idx = idx
             break
 
-    # Puhdistetaan nimet huolellisesti
     class_name = next((l.split(':CLASS:')[1].strip() for l in header_lines if ':CLASS:' in l), None)
     func_name = next((l.split(':FUNCTION:')[1].strip() for l in header_lines if ':FUNCTION:' in l), None)
     var_name = next((l.split(':VARIABLE:')[1].strip() for l in header_lines if ':VARIABLE:' in l), None)
@@ -60,6 +105,7 @@ def kasittele_lohko(block, nykyinen_sisalto):
     is_variable = var_name is not None
     item_name = var_name if is_variable else func_name
     code_to_insert = '\n'.join(raw_lines[code_start_idx:]).rstrip()
+    kohde_str = f"{class_name + '.' if class_name else ''}{item_name or ''}"
 
     if not item_name and not class_name:
         return nykyinen_sisalto
@@ -67,7 +113,7 @@ def kasittele_lohko(block, nykyinen_sisalto):
     try:
         tree = ast.parse(nykyinen_sisalto)
     except Exception as e:
-        print(f"❌ AST-VIRHE: Tiedostossa on syntaksivirhe, ei voida analysoida: {e}")
+        print(f"❌ AST-VIRHE: {e}")
         return nykyinen_sisalto
 
     found_node = None
@@ -106,12 +152,10 @@ def kasittele_lohko(block, nykyinen_sisalto):
     if found_node:
         start_line_idx = found_node.lineno - 1
         end_line_idx = found_node.end_lineno
-        
         first_old_line = target_lines[start_line_idx]
         base_indent_str = first_old_line[:len(first_old_line) - len(first_old_line.lstrip())]
         
         ai_lines = code_to_insert.split('\n')
-        # Etsitään ensimmäinen ei-tyhjä rivi sisennyksen laskemiseksi
         first_non_empty_ai = next((l for l in ai_lines if l.strip()), "")
         ai_indent_len = len(first_non_empty_ai) - len(first_non_empty_ai.lstrip())
         
@@ -124,13 +168,10 @@ def kasittele_lohko(block, nykyinen_sisalto):
                 new_lines.append('')
         indented_code_str = '\n'.join(new_lines)
 
-        old_code_snippet = '\n'.join(target_lines[start_line_idx:end_line_idx])
-
-        print(f"\n🔄 KORVATAAN (AST): {CYAN}{class_name if class_name else ''}{'.' + item_name if item_name else ''}{RESET}")
-        print(f"{RED}--- POISTETTAVA (Rivit {start_line_idx+1}-{end_line_idx}) ---{RESET}")
-        print(f"{RED}{old_code_snippet}{RESET}")
-        print(f"{YELLOW}--- UUSI KOODI ---{RESET}")
-        print(f"{YELLOW}{indented_code_str}{RESET}")
+        uusi_lkm = len(indented_code_str.splitlines())
+        nayta_muutos_raportti("KORVAUS", kohde_str, start_line_idx + 1, end_line_idx, 
+                             start_line_idx + 1, start_line_idx + uusi_lkm, 
+                             '\n'.join(target_lines[start_line_idx:end_line_idx]), indented_code_str)
 
         return '\n'.join(target_lines[:start_line_idx]) + '\n' + indented_code_str + '\n' + '\n'.join(target_lines[end_line_idx:])
     
@@ -153,18 +194,21 @@ def kasittele_lohko(block, nykyinen_sisalto):
                 new_lines.append('')
         
         indented_code_str = '\n'.join(new_lines)
-        print(f"\n➕ LISÄTÄÄN LUOKKAAN {CYAN}{class_name}{RESET}: {item_name}")
-        print(f"{YELLOW}--- UUSI KOODI ---{RESET}")
-        print(f"{YELLOW}{indented_code_str}{RESET}")
+        uusi_lkm = len(indented_code_str.splitlines())
+        
+        nayta_muutos_raportti("LISÄYS LUOKKAAN", kohde_str, -1, -1, 
+                             insert_pos + 1, insert_pos + uusi_lkm, 
+                             "", indented_code_str)
         
         return '\n'.join(target_lines[:insert_pos]) + '\n' + indented_code_str + '\n' + '\n'.join(target_lines[insert_pos:])
 
     else:
-        target_name = f"{class_name}.{item_name}" if class_name and item_name else (item_name or class_name)
-        print(f"⚠️ {YELLOW}Kohdetta {target_name} ei löytynyt. Lisätään loppuun.{RESET}")
-        print(f"{YELLOW}--- UUSI KOODI ---{RESET}")
-        print(f"{YELLOW}{code_to_insert}{RESET}")
+        uusi_lkm = len(code_to_insert.splitlines())
+        nayta_muutos_raportti("LISÄYS LOPPUUN", kohde_str, -1, -1, 
+                             len(target_lines) + 2, len(target_lines) + 2 + uusi_lkm, 
+                             "", code_to_insert)
         return nykyinen_sisalto.rstrip() + '\n\n' + code_to_insert + '\n'
+
 if __name__ == "__main__":
     if os.name == 'nt': os.system('')
     ai_text = lue_tiedosto(AI_RESPONSE_FILE)

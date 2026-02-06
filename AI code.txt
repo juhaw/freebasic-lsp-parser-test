@@ -1,56 +1,61 @@
 :CLASS: Parser
 :FUNCTION: parseMethodImplementation
-    def parseMethodImplementation(self):
-        token = self.advance()
-        # method_type on esim. 'sub', 'function', 'constructor' tai 'destructor'
-        method_type = token.value.lower()
-        
-        full_name = ""
-        # Kerätään nimi, jos se seuraa avainsanaa (esim. 'Kangaroo.jump_set')
-        while self.current().type in ("IDENT", "DOT"):
-            full_name += self.current().value
-            self.advance()
+def parseMethodImplementation(self):
+    token = self.advance()
+    method_type = token.value.lower()
 
-        # Jos nimeä ei löytynyt (esim. pelkkä 'Constructor'), käytetään tyyppiä nimenä
-        # TÄSSÄ KOHTAA 'Kangaroo' voi tulla nimeksi jos 'Constructor' on jo syöty
-        if not full_name:
-            full_name = method_type
+    # Luetaan nimi (esim. "Kangaroo" tai "Kangaroo.jump_set")
+    full_name = ""
+    while self.current().type in ("IDENT", "DOT"):
+        full_name += self.current().value
+        self.advance()
 
-        # Ohitetaan parametrit ja paluutyypit, ne eivät vaikuta tähän ongelmaan
-        params = []
-        if self.match("LPAREN"):
-            while self.current().type != "RPAREN" and self.current().type != "EOF":
-                p_name = self.expect("IDENT").value
-                self.expect("KEYWORD", "as")
-                p_type = self.expect("IDENT").value
+    # Jos nimeä ei löytynyt (pelkkä Constructor ilman nimeä), käytetään tyyppiä
+    if not full_name:
+        full_name = method_type
+
+    params = []
+    if self.match("LPAREN"):
+        while self.current().type != "RPAREN" and self.current().type != "EOF":
+            if self.current().type == "IDENT":
+                p_name = self.advance().value
+                p_type = "Any"
+                if self.match("KEYWORD", "as"):
+                    if self.current().type == "IDENT":
+                        p_type = self.advance().value
                 params.append((p_name, p_type))
-                if not self.match("COMMA"):
-                    break
-            self.expect("RPAREN")
-
-        return_type = "Void"
-        if self.match("KEYWORD", "as"):
-            return_type = self.expect("IDENT").value
-
-        # --- RATKAISU ---
-        # 1. Jos nimessä on piste (Kangaroo.jump_set) -> se on luokan metodi.
-        # 2. Jos method_type on constructor/destructor -> se on luokan metodi.
-        # 3. Jos full_name on 'Kangaroo' ja meillä on tyyppi sen nimisenä -> se on luokan metodi.
-        
-        is_class_member = (
-            "." in full_name or 
-            method_type in ("constructor", "destructor") or 
-            full_name.lower() in ("kangaroo", "constructor", "destructor")
-        )
-        
-        if not is_class_member:
-            self.symbol_table.addVariable(VariableSymbol(full_name, f"{method_type.capitalize()} returning {return_type}"))
-
-        # Skipataan rungon sisältö 'end' -sanaan asti
-        while self.current().type != "EOF":
-            if self.match("KEYWORD", "end"):
-                self.advance() # Ohitetaan 'sub'/'function' tms.
+            if self.match("COMMA"):
+                continue
+            if self.current().type == "RPAREN":
                 break
             self.advance()
+        self.expect("RPAREN")
 
-        return MethodNode(full_name, return_type, params)
+    return_type = "Void"
+    if self.match("KEYWORD", "as"):
+        if self.current().type == "IDENT":
+            return_type = self.advance().value
+
+    # --- KRIITTINEN KORJAUS TÄSSÄ ---
+    # 1. Onko tämä tyypin sisällä (Declare)?
+    is_inside_type = self.current_type is not None
+    # 2. Onko tämä toteutus (sisältää pisteen tai on Constructor/Destructor globaalilla tasolla)?
+    is_impl = "." in full_name or method_type in ("constructor", "destructor")
+
+    # Lisätään symbolitauluun VAIN jos se on globaali funktion deklaraatio 
+    # (eli ei olla tyypin sisällä EIKÄ kyseessä ole metodin toteutus)
+    if not is_inside_type and not is_impl:
+        self.symbol_table.addVariable(VariableSymbol(full_name, f"{method_type.capitalize()} returning {return_type}"))
+
+    # Skipataan runko vain jos kyseessä ei ole deklaraatio
+    if not is_inside_type:
+        while self.current().type != "EOF":
+            if self.current().value.lower() == "end":
+                next_t = self.peek(1)
+                if next_t and next_t.value.lower() == method_type:
+                    self.advance() # end
+                    self.advance() # sub/function/constructor/destructor
+                    break
+            self.advance()
+
+    return MethodNode(full_name, return_type, params)
