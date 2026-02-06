@@ -84,16 +84,28 @@ Type Kangaroo
     Jump as Integer
     Pouch as Integer
     hai as UByte
-    declare function jump_set(yksi as Integer) as Integer
+    marx as integer
+    
+    declare sub jump_set(yksi as Integer)
+    declare function jump_get() as Integer
     public: rotta_public as Integer
-    private: rotta_private as Integer
+   
     Static class_variable as Integer
+
+    ' Constructor: olio luodaan
+    Declare Constructor(zippo As Integer)
+    ' Destructor: olio tuhoutuu
+    Declare Destructor()
+    
+    private:
+    rotta_private as Integer
+
 End Type
 
-Dim kanga1 As Kangaroo
-Dim kanga2 As Kangaroo
-Dim susihukkanen As Kangaroo
-kanga1.Pouch = kanga1.jump_set(5)
+Dim kanga1 As Kangaroo = Kangaroo(1)
+Dim kanga2 As Kangaroo = Kangaroo(2)
+Dim susihukkanen As Kangaroo = Kangaroo(3)
+kanga1.jump_set(5)
 print "kanga1.Pouch:", kanga1.Pouch
 ' -----------------------------
 ' 10️⃣ SHARED muuttujat
@@ -101,9 +113,24 @@ print "kanga1.Pouch:", kanga1.Pouch
 Dim Shared counter As Integer
 Dim Shared arr(5) As Double
 
-function Kangaroo.jump_set(yksi as integer) as integer
-    return 1
+'declare
+sub Kangaroo.jump_set(yksi as integer)
+    This.Jump = yksi
+end sub
+
+function Kangaroo.jump_get() as integer
+    return This.Jump
 end function
+
+
+
+Constructor Kangaroo(zippo As Integer)
+    This.marx = 5
+End Constructor
+
+Destructor Kangaroo()
+    Print "Muisti vapautettu!"
+End Destructor
 
 ' ====================================================
 ' End of FreeBASIC DIM tests

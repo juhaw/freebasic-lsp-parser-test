@@ -33,6 +33,7 @@ class KeywordRegistry:
 
     
     @staticmethod
+    @staticmethod
     def create_default_registry():
         registry = KeywordRegistry()
         registry.register_statement("#include", Parser.parseInclude)
@@ -41,6 +42,8 @@ class KeywordRegistry:
         registry.register_statement("function", Parser.parseMethodImplementation)
         registry.register_statement("sub", Parser.parseMethodImplementation)
         registry.register_statement("declare", Parser.parseGlobalDeclare)
+        registry.register_statement("constructor", Parser.parseMethodImplementation)
+        registry.register_statement("destructor", Parser.parseMethodImplementation)
         registry.register_statement("as", None)
         registry.register_statement("end", None)
         registry.register_statement("shared", None)
@@ -51,6 +54,8 @@ class KeywordRegistry:
         registry.register_type_block_keyword("static", Parser._handle_type_static)
         registry.register_type_block_keyword("dim", Parser._handle_type_dim)
         registry.register_type_block_keyword("property", Parser._handle_type_property)
+        registry.register_type_block_keyword("constructor", Parser.handleConstructorDestructor)
+        registry.register_type_block_keyword("destructor", Parser.handleConstructorDestructor)
         registry.register_type_block_keyword("public", None)
         registry.register_type_block_keyword("private", None)
 
@@ -311,15 +316,14 @@ class Parser:
         }
     }
 
-    def __init__(self, tokens, symbol_table, base_path=""):
+    def __init__(self, tokens, symbol_table=None, base_path=""):
         self.tokens = tokens
         self.pos = 0
-        self.symbol_table = symbol_table
+        self.symbol_table = symbol_table if symbol_table else SymbolTable()
         self.base_path = base_path
         self.current_type = None
-        if Tokenizer.KEYWORD_REGISTRY is None:
-            Tokenizer.KEYWORD_REGISTRY = KeywordRegistry.create_default_registry()
-        self.registry = Tokenizer.KEYWORD_REGISTRY
+        self.registry = KeywordRegistry.create_default_registry()
+        # Basic fields (no keyword) handled by default in parseTypeBlock
 
     def current(self):
         return self.tokens[self.pos]
@@ -419,47 +423,40 @@ class Parser:
         return None
 
     def _handle_type_declare(self, visibility, tnode):
-        # Ohitetaan 'declare'
-        self.advance()
+        self.consume()  # 'declare'
 
-        # Katsotaan onko 'sub' vai 'function'
-        kind_tok = self.current()
-        kind = kind_tok.value.lower()
-        self.advance()
+        token = self.current()
+        if token.type == "KEYWORD" and token.value.lower() in ("constructor", "destructor"):
+            return self.handleConstructorDestructor(visibility, tnode)
 
-        # Metodin nimi
+        # Tavallinen metodi (Function/Sub)
+        kind = self.consume().value  # 'function' tai 'sub'
         name_tok = self.expect("IDENT")
-        method_name = name_tok.value
+        name = name_tok.value
 
-        # Parsitaan parametrit (esim. '(yksi as integer)')
         params = []
-        if self.current().type == "LPAREN":
-            self.advance()
+        if self.match("LPAREN", "("):
             while self.current().type != "RPAREN" and self.current().type != "EOF":
+                if self.current().value.lower() in ("byval", "byref"):
+                    self.advance()
                 p_name = self.expect("IDENT").value
                 p_type = "Any"
-                if self.current().value.lower() == "as":
-                    self.advance()
-                    p_tok = self.current()
-                    p_type = p_tok.value
-                    self.advance()
+                if self.match("KEYWORD", "as"):
+                    p_type = self.expect("IDENT").value
                 params.append((p_name, p_type))
                 if self.current().type == "COMMA":
                     self.advance()
             self.expect("RPAREN")
 
-        # Paluutyyppi (vain funktioille)
         ret_type = "Void"
-        if kind == "function" and self.current().value.lower() == "as":
-            self.advance()
-            ret_type = self.current().value
-            self.advance()
+        if kind.lower() == "function" and self.match("KEYWORD", "as"):
+            ret_type = self.expect("IDENT").value
 
-        # Tallennetaan tyypin tietoihin
-        new_method = MethodNode(method_name, params, ret_type, visibility)
+        new_method = MethodNode(name, params, ret_type, visibility)
         tnode.methods.append(new_method)
         if self.current_type:
             self.current_type.methods.append(new_method)
+
         return True, visibility
 
     def _handle_type_static(self, visibility, tnode):
@@ -803,6 +800,79 @@ class Parser:
         line = self.current().line
         while self.current().line == line and self.current().type != "EOF":
             self.advance()
+        return None
+    def handleConstructorDestructor(self, visibility, tnode):
+        kind_tok = self.consume()  # 'constructor' tai 'destructor'
+        method_name = kind_tok.value
+        params = []
+
+        # Jos perässä on IDENT, se on metodin nimi (harvinaisempaa konstruktoreille, mutta mahdollista)
+        if self.current().type == "IDENT":
+            method_name = self.consume().value
+
+        if self.match("LPAREN", "("):
+            while self.current().type != "RPAREN" and self.current().type != "EOF":
+                if self.current().value.lower() in ("byval", "byref"): 
+                    self.advance()
+
+                if self.current().type == "IDENT":
+                    p_name = self.consume().value
+                    p_type = "Any"
+                    if self.match("KEYWORD", "as"):
+                        if self.current().type == "IDENT":
+                            p_type = self.consume().value
+                    params.append((p_name, p_type))
+
+                if self.current().type == "COMMA":
+                    self.advance()
+                elif self.current().type != "RPAREN":
+                    self.advance()
+
+            self.expect("RPAREN")
+
+        new_method = MethodNode(method_name, params, "None", visibility)
+        tnode.methods.append(new_method)
+        if self.current_type:
+            self.current_type.methods.append(new_method)
+
+        return True, visibility
+    def _handle_dim(self, is_shared=False):
+        self.consume()  # 'dim' tai 'redim'
+        if self.current().value.lower() == "shared":
+            self.advance()
+            is_shared = True
+
+        while True:
+            name_tok = self.expect("IDENT")
+            name = name_tok.value
+
+            # Ohitetaan taulukkomääritykset (esim. arr(10))
+            if self.match("LPAREN", "("):
+                while self.current().type != "RPAREN" and self.current().type != "EOF":
+                    self.advance()
+                self.expect("RPAREN")
+
+            var_type = "Any"
+            if self.match("KEYWORD", "as"):
+                # Huomioidaan myös mahdolliset pointterit: As Integer Ptr
+                type_tok = self.expect("IDENT")
+                var_type = type_tok.value
+                if self.current().value.lower() == "ptr":
+                    var_type += " Ptr"
+                    self.advance()
+
+            # Lisätään muuttuja symbolitauluun
+            self.symbol_table.addVariable(VariableSymbol(name, var_type))
+
+            # TÄRKEÄÄ: Jos perässä on '=', kulutetaan loppurivi jotta se ei sotke seuraavia hakuja
+            if self.match("KEYWORD", "="):
+                start_line = name_tok.line
+                while self.current().type != "EOF" and self.current().line == start_line and self.current().value != ":":
+                    self.advance()
+
+            if not self.match("COMMA", ","):
+                break
+
         return None
 
 Tokenizer.KEYWORD_REGISTRY = KeywordRegistry.create_default_registry()

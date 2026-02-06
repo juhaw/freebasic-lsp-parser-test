@@ -1,29 +1,40 @@
 :CLASS: Parser
-:FUNCTION: parseStaticField
-def parseStaticField(self, visibility="public"):
-    self.expect("KEYWORD", "static")
-    name_tok = self.expect("IDENT")
-    name = name_tok.value
-    type_name = "Any"
-    if self.match("KEYWORD", "as"):
-        type_tok = self.expect("IDENT")
-        type_name = type_tok.value
-        # Tuki pointterityypeille myös staattisissa kentissä
-        if self.current().value.lower() == "ptr":
-            type_name += " Ptr"
+:FUNCTION: _handle_dim
+    def _handle_dim(self, is_shared=False):
+        self.consume()  # 'dim' tai 'redim'
+        if self.current().value.lower() == "shared":
             self.advance()
-    return FieldNode(name, type_name, visibility, is_static=True)
-
-:CLASS: Parser
-:FUNCTION: _handle_type_static
-def _handle_type_static(self, visibility, tnode):
-    fnode = self.parseStaticField(visibility)
-    if fnode:
-        tnode.fields.append(fnode)
-        # Päivitetään symbolitaulun TypeSymbol
-        ts = self.symbol_table.getType(tnode.name)
-        if ts:
-            ts.fields.append(fnode)
-            if fnode.is_static:
-                ts.static_fields.append(fnode)
-    return True, visibility
+            is_shared = True
+            
+        while True:
+            name_tok = self.expect("IDENT")
+            name = name_tok.value
+            
+            # Ohitetaan taulukkomääritykset (esim. arr(10))
+            if self.match("LPAREN", "("):
+                while self.current().type != "RPAREN" and self.current().type != "EOF":
+                    self.advance()
+                self.expect("RPAREN")
+                
+            var_type = "Any"
+            if self.match("KEYWORD", "as"):
+                # Huomioidaan myös mahdolliset pointterit: As Integer Ptr
+                type_tok = self.expect("IDENT")
+                var_type = type_tok.value
+                if self.current().value.lower() == "ptr":
+                    var_type += " Ptr"
+                    self.advance()
+            
+            # Lisätään muuttuja symbolitauluun
+            self.symbol_table.addVariable(VariableSymbol(name, var_type))
+            
+            # TÄRKEÄÄ: Jos perässä on '=', kulutetaan loppurivi jotta se ei sotke seuraavia hakuja
+            if self.match("KEYWORD", "="):
+                start_line = name_tok.line
+                while self.current().type != "EOF" and self.current().line == start_line and self.current().value != ":":
+                    self.advance()
+            
+            if not self.match("COMMA", ","):
+                break
+        
+        return None

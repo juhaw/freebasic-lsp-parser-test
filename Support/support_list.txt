@@ -1,0 +1,55 @@
+============================================================
+FREEBASIC PARSER / LSP SUPPORT LIST
+============================================================
+
+------------------------------------------------------------
+1. DIM (MUUTTUJAMÄÄRITYKSET)
+------------------------------------------------------------
+- Perusmuuttujat: 'Dim As Tyyppi'
+- Useita muuttujia samalla rivillä: 'Dim a As Integer, b As Double'
+- Alustaminen (Initialization): 'Dim i As Integer = 10'
+- Olion alustus konstruktorilla: 'Dim k As Kangaroo = Kangaroo(1)'
+- Globaalit muuttujat: 'Dim Shared nimi As Tyyppi'
+- Staattiset paikalliset muuttujat: 'Static nimi As Tyyppi'
+- Taulukkomääritykset (Arrays):
+    * Kiinteä koko: 'Dim taulu(5) As Integer'
+    * Indeksivälit: 'Dim taulu(1 To 10) As Single'
+    * Moniulotteiset taulukot: 'Dim map(0 To 15, 0 To 15) As Byte'
+
+------------------------------------------------------------
+2. TYPE (TIETUEET JA LUOKAT)
+------------------------------------------------------------
+- Rakenteen määrittely: 'Type Nimi ... End Type'
+- Kentät (Fields):
+    * 'nimi As Tyyppi' (ilman Dim-sanaa)
+    * Osoittimet: 'as Integer Ptr' tai 'as Any Ptr'
+- Näkyvyysalueet (Visibility):
+    * 'Public:', 'Private:' ja 'Protected:' lohkot
+    * Jäsenten näkyvyyden periyttäminen asetetusta lohkosta
+- Staattiset jäsenet:
+    * 'Static nimi As Tyyppi' (luokkakohtaiset muuttujat)
+- Metodien ja ominaisuuksien esittelyt (Declarations):
+    * 'Declare Function ... As ...'
+    * 'Declare Sub ...'
+    * 'Declare Constructor(...)'
+    * 'Declare Destructor()'
+    * 'Property ... As ...' (sisältäen parametrit ja indeksoidut propertyt)
+
+------------------------------------------------------------
+3. TOTEUTUKSET JA LOGIIKKA (IMPLEMENTATION)
+------------------------------------------------------------
+- Metodien toteutus luokan ulkopuolella: 'Function Luokka.Metodi(...)'
+- Konstruktorien ja destruktorien toteutus
+- 'This'-avainsanan tuki metodien sisällä (viittaus olion omiin jäseniin)
+- Arvotukset (Assignments): 'kohde = arvo' tai 'olio.kenttä = arvo'
+- Useita komentoja rivillä: Kaksoispisteen (:) käyttö erottimena
+- Funktioiden paluuarvot: 'Return arvo'
+
+------------------------------------------------------------
+4. TUNNISTETUT TYYPIT
+------------------------------------------------------------
+- Perustyypit: Integer, Double, Single, String, Byte, UByte, Long jne.
+- Käyttäjän määrittämät tyypit (UDT)
+- Pointterityypit (Ptr)
+- Aliohjelmien paluuarvottomuus (Void / None)
+============================================================
