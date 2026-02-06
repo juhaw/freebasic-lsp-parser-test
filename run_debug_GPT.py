@@ -1,6 +1,7 @@
+#```
+
 import os
 from fb_parser_GPT_static import tokenize_source, Parser, SymbolTable, FieldNode, MethodNode, TypeNode, DimNode
-#from fb_parser_GPT_static import tokenize_source
 
 try:
     import pyperclip
@@ -27,7 +28,6 @@ def aja_testi():
     output_lines = []
 
     # --- TOKENISOINTI ---
-    #tokenizer = Tokenizer(koodi, testitiedosto)
     tokenizer = tokenize_source(koodi, testitiedosto)
     tokens = tokenizer.get_tokens()
 
@@ -41,38 +41,11 @@ def aja_testi():
     parser = Parser(tokens, symtab, os.path.dirname(testitiedosto))
     output_lines.append("--- PARSING BLOCK ---")
 
-    current_type = None
-    while parser.current().type != "EOF":
-        tok = parser.current()
-        output_lines.append(f"Parsing token: {tok.type} '{tok.value}' at line {tok.line}")
-        try:
-            node = parser.parseStatement()
-            if node:
-                output_lines.append(f"Parsed node: {type(node).__name__}")
-                # Track current type for placeholder fields
-                if isinstance(node, TypeNode):
-                    current_type = node
-        except SyntaxError as e:
-            output_lines.append(f"SyntaxError: {e}")
-
-            # Virheiden käsittely: public/private/static/dim placeholder
-            if tok.type == "KEYWORD":
-                val = tok.value.lower()
-                if val in ["public", "private", "static"]:
-                    fnode = FieldNode(name="UNKNOWN", type_name="UNKNOWN")
-                    fnode.visibility = val if val != "static" else "public"
-                    fnode.is_static = val == "static"
-
-                    # Lisää placeholder nykyiseen typeen, jos olemassa
-                    if current_type:
-                        current_type.fields.append(fnode)
-                elif val == "dim":
-                    # Luo placeholder variable FieldNode
-                    fnode = FieldNode(name="UNKNOWN_DIM", type_name="UNKNOWN")
-                    if current_type:
-                        current_type.fields.append(fnode)
-
-            parser.advance()
+    # *** KORJATTU KOHTA ***
+    nodes = parser.parseBlock()
+    for node in nodes:
+        output_lines.append(f"Parsed node: {type(node).__name__}")
+    # *** KORJAUS PÄÄTTYY ***
 
     output_lines.append("--- PARSING DONE ---\n")
 
@@ -119,3 +92,5 @@ def aja_testi():
 
 if __name__ == "__main__":
     aja_testi()
+
+#```

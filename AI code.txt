@@ -1,61 +1,58 @@
 :CLASS: Parser
-:FUNCTION: parseMethodImplementation
-def parseMethodImplementation(self):
-    token = self.advance()
-    method_type = token.value.lower()
+:FUNCTION: handleConstructorDestructor
+def handleConstructorDestructor(self, visibility, tnode):
+    tok = self.current()
+    kind = tok.value.lower()
+    self.advance()
 
-    # Luetaan nimi (esim. "Kangaroo" tai "Kangaroo.jump_set")
-    full_name = ""
-    while self.current().type in ("IDENT", "DOT"):
-        full_name += self.current().value
-        self.advance()
-
-    # Jos nimeä ei löytynyt (pelkkä Constructor ilman nimeä), käytetään tyyppiä
-    if not full_name:
-        full_name = method_type
-
+    type_name = tnode.name
     params = []
-    if self.match("LPAREN"):
+
+    if self.current().type == "LPAREN":
+        self.advance()
         while self.current().type != "RPAREN" and self.current().type != "EOF":
             if self.current().type == "IDENT":
-                p_name = self.advance().value
-                p_type = "Any"
-                if self.match("KEYWORD", "as"):
+                pname = self.current().value
+                self.advance()
+                if self.current().type == "IDENT" and self.current().value.lower() == "as":
+                    self.advance()
                     if self.current().type == "IDENT":
-                        p_type = self.advance().value
-                params.append((p_name, p_type))
-            if self.match("COMMA"):
-                continue
-            if self.current().type == "RPAREN":
-                break
-            self.advance()
-        self.expect("RPAREN")
-
-    return_type = "Void"
-    if self.match("KEYWORD", "as"):
-        if self.current().type == "IDENT":
-            return_type = self.advance().value
-
-    # --- KRIITTINEN KORJAUS TÄSSÄ ---
-    # 1. Onko tämä tyypin sisällä (Declare)?
-    is_inside_type = self.current_type is not None
-    # 2. Onko tämä toteutus (sisältää pisteen tai on Constructor/Destructor globaalilla tasolla)?
-    is_impl = "." in full_name or method_type in ("constructor", "destructor")
-
-    # Lisätään symbolitauluun VAIN jos se on globaali funktion deklaraatio 
-    # (eli ei olla tyypin sisällä EIKÄ kyseessä ole metodin toteutus)
-    if not is_inside_type and not is_impl:
-        self.symbol_table.addVariable(VariableSymbol(full_name, f"{method_type.capitalize()} returning {return_type}"))
-
-    # Skipataan runko vain jos kyseessä ei ole deklaraatio
-    if not is_inside_type:
-        while self.current().type != "EOF":
-            if self.current().value.lower() == "end":
-                next_t = self.peek(1)
-                if next_t and next_t.value.lower() == method_type:
-                    self.advance() # end
-                    self.advance() # sub/function/constructor/destructor
-                    break
+                        ptype = self.current().value
+                        self.advance()
+                        params.append((pname, ptype))
+            else:
+                self.advance()
+        if self.current().type == "RPAREN":
             self.advance()
 
-    return MethodNode(full_name, return_type, params)
+    body = []
+    while not (self.current().type == "IDENT" and self.current().value.lower() == "end"):
+        stmt = self.parseStatement()
+        if stmt:
+            body.append(stmt)
+        else:
+            self.advance()
+
+    self.advance()
+    self.advance()
+
+    node = ConstructorDestructorNode(kind, type_name, visibility, body)
+    node.params = params
+
+    # 🔥 Poistaa kaikki aiemmat constructor/destructor‑merkinnät symbolitaulusta
+    ts = self.symbol_table.getType(type_name)
+    if ts:
+        ts.methods = [
+            m for m in ts.methods
+            if not (isinstance(m, ConstructorDestructorNode) and m.kind == kind)
+        ]
+        ts.methods.append(node)
+
+    # 🔥 Poistaa kaikki aiemmat constructor/destructor‑merkinnät AST:stä
+    tnode.methods = [
+        m for m in tnode.methods
+        if not (isinstance(m, ConstructorDestructorNode) and m.kind == kind)
+    ]
+    tnode.methods.append(node)
+
+    return True, visibility
