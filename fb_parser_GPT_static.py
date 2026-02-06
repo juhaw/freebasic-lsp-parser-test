@@ -1,5 +1,9 @@
+#```
 import os
 import re
+
+
+
 
 # === AI_INSERT_POINT:IMPORTS ===
 
@@ -27,92 +31,154 @@ class KeywordRegistry:
         self.keywords.add(keyword.lower())
         self.type_block_handlers[keyword.lower()] = handler_func
 
+    
     @staticmethod
     def create_default_registry():
         registry = KeywordRegistry()
         registry.register_statement("#include", Parser.parseInclude)
-        registry.register_statement("type", Parser.parseType)
-        
-        registry.register_statement("as", None)  # <-- lisätty
-        registry.register_type_block_keyword("declare", Parser.parseTypeMethod)
-        registry.register_type_block_keyword("static", Parser.parseStaticField)
-        registry.register_type_block_keyword("public", None)
-        registry.register_type_block_keyword("private", None)
-
-        # - lisäyskorvaus alkaa: Parser / create_default_registry / vaihe 21
+        registry.register_statement("type", Parser.parseTypeBlock)
+        registry.register_statement("dim", Parser.parseDim)
+        registry.register_statement("function", Parser.parseMethodImplementation)
+        registry.register_statement("sub", Parser.parseMethodImplementation)
+        registry.register_statement("declare", Parser.parseGlobalDeclare)
+        registry.register_statement("as", None)
         registry.register_statement("end", None)
-        registry.register_statement("function", None)
-        registry.register_statement("sub", None)
         registry.register_statement("shared", None)
         registry.register_statement("to", None)
         registry.register_statement("ptr", None)
-        # - lisäyskorvaus loppuu
+
+        registry.register_type_block_keyword("declare", Parser._handle_type_declare)
+        registry.register_type_block_keyword("static", Parser._handle_type_static)
+        registry.register_type_block_keyword("dim", Parser._handle_type_dim)
+        registry.register_type_block_keyword("property", Parser._handle_type_property)
+        registry.register_type_block_keyword("public", None)
+        registry.register_type_block_keyword("private", None)
 
         return registry
-
 
     def is_keyword(self, value):
         """Tarkista onko annettu arvo rekisteröity avainsana."""
         return value.lower() in self.keywords
 
-class Tokenizer:
-    KEYWORD_REGISTRY = None
+    def get_type_block_handler(self, keyword):
+        return self.type_block_handlers.get(keyword.lower())
 
+class Tokenizer:
     def __init__(self, source, filename=""):
         self.source = source
         self.filename = filename
         self.tokens = []
-        self._tokenize()
+        self.pos = 0
+        self.line = 1
+        self.col = 1
+        self.current_char = source[0] if source else None
+
+    def advance(self):
+        """Siirtyy seuraavaan merkkiin ja päivittää rivi/sarake-tiedot."""
+        self.pos += 1
+        if self.pos < len(self.source):
+            self.current_char = self.source[self.pos]
+            self.col += 1
+        else:
+            self.current_char = None
+
+    def peek(self):
+        """Katsoo seuraavaa merkkiä liikuttamatta kursoria."""
+        peek_pos = self.pos + 1
+        if peek_pos < len(self.source):
+            return self.source[peek_pos]
+        return None
 
     def _tokenize(self):
-        lines = self.source.splitlines()
-        for line_idx, line in enumerate(lines, start=1):
-            i = 0
-            col = 1
-            if not line.strip() or line.lstrip().startswith("'"):
+        while self.current_char is not None:
+            char = self.current_char
+
+            if char.isspace():
+                if char == '\n':
+                    self.line += 1
+                    self.col = 1
+                self.advance()
                 continue
-            while i < len(line):
-                ch = line[i]
-                if ch in " \t":
-                    i += 1
-                    col += 1
-                    continue
-                if ch == "'":
-                    break
-                if ch in '(),:':
-                    ttype = "COMMA" if ch == "," else ch
-                    self.tokens.append(Token(ttype, ch, line_idx, col))
-                    i += 1
-                    col += 1
-                    continue
-                if ch == '"':
-                    self.tokens.append(Token('"', '"', line_idx, col))
-                    i += 1
-                    col += 1
-                    continue
-                if ch.isalpha() or ch == "#":
-                    start = i
-                    while i < len(line) and (line[i].isalnum() or line[i] in "_#"):
-                        i += 1
-                    value = line[start:i]
-                    ttype = "KEYWORD" if self.KEYWORD_REGISTRY.is_keyword(value) else "IDENT"
-                    self.tokens.append(Token(ttype, value, line_idx, col))
-                    col += i - start
-                    continue
-                if ch.isdigit():
-                    start = i
-                    while i < len(line) and line[i].isdigit():
-                        i += 1
-                    value = line[start:i]
-                    self.tokens.append(Token("NUMBER", value, line_idx, col))
-                    col += i - start
-                    continue
-                i += 1
-                col += 1
-        self.tokens.append(Token("EOF", "", len(lines) + 1, 1))
+
+            if char == "'":
+                while self.current_char is not None and self.current_char != '\n':
+                    self.advance()
+                continue
+
+            if char == '"':
+                start_col = self.col
+                val = ""
+                self.advance()
+                while self.current_char is not None and self.current_char != '"':
+                    val += self.current_char
+                    self.advance()
+                if self.current_char == '"': self.advance()
+                self.tokens.append(Token("STRING", val, self.line, start_col))
+                continue
+
+            if char.isdigit():
+                start_col = self.col
+                num = ""
+                has_dec = False
+                while self.current_char is not None:
+                    if self.current_char == '.' and not has_dec:
+                        nxt = self.peek()
+                        if nxt and nxt.isdigit():
+                            has_dec = True
+                            num += self.current_char
+                        else: break
+                    elif self.current_char.isdigit():
+                        num += self.current_char
+                    else: break
+                    self.advance()
+                self.tokens.append(Token("NUMBER", num, self.line, start_col))
+                continue
+
+            if char.isalpha() or char == '_' or char == '#':
+                start_col = self.col
+                ident = ""
+                while self.current_char is not None and (self.current_char.isalnum() or self.current_char == '_'):
+                    ident += self.current_char
+                    self.advance()
+
+                if self.current_char is not None and self.current_char in "$%&!#":
+                    ident += self.current_char
+                    self.advance()
+
+                if Tokenizer.KEYWORD_REGISTRY and Tokenizer.KEYWORD_REGISTRY.is_keyword(ident):
+                    self.tokens.append(Token("KEYWORD", ident, self.line, start_col))
+                else:
+                    self.tokens.append(Token("IDENT", ident, self.line, start_col))
+                continue
+
+            if char == ',':
+                self.tokens.append(Token("COMMA", ",", self.line, self.col))
+                self.advance()
+            elif char == '.':
+                self.tokens.append(Token("DOT", ".", self.line, self.col))
+                self.advance()
+            elif char == ':':
+                self.tokens.append(Token("COLON", ":", self.line, self.col))
+                self.advance()
+            elif char == '(':
+                self.tokens.append(Token("LPAREN", "(", self.line, self.col))
+                self.advance()
+            elif char == ')':
+                self.tokens.append(Token("RPAREN", ")", self.line, self.col))
+                self.advance()
+            elif char == '=':
+                self.tokens.append(Token("KEYWORD", "=", self.line, self.col))
+                self.advance()
+            else:
+                self.advance()
+
+        self.tokens.append(Token("EOF", "", self.line, self.col))
+        return self.tokens
 
     def get_tokens(self):
         return self.tokens
+
+    KEYWORD_REGISTRY = None
 
 class ASTNode:
     def __init__(self, kind):
@@ -124,6 +190,10 @@ class TypeNode(ASTNode):
         self.name = name
         self.fields = fields
         self.methods = methods
+
+    def add_method(self, name, return_type, params, visibility="public"):
+        new_method = MethodNode(name, params, return_type, visibility)
+        self.methods.append(new_method)
 
 class FieldNode(ASTNode):
     def __init__(self, name, type_name, visibility="public", is_static=False):
@@ -146,6 +216,15 @@ class DimNode(ASTNode):
         super().__init__("Dim")
         self.names = names
         self.type_name = type_name
+
+class AssignmentNode(ASTNode):
+    def __init__(self, target, value):
+        super().__init__("Assignment")
+        self.target = target
+        self.value = value
+
+    def __repr__(self):
+        return f"Assignment({self.target} = {self.value})"
 
 class TypeSymbol:
     def __init__(self, name, fields, methods):
@@ -195,10 +274,12 @@ class SymbolTable:
             for m in ts.methods:
                 if getattr(m, "visibility", "public").lower() != "public":
                     continue
+                # Varmistetaan nimen haku MethodNode-oliolta
+                m_name = getattr(m, 'name', 'Unknown')
                 members.append({
-                    "label": m.name,
-                    "insertText": f"{m.name}($1)",
-                    "detail": f"(Method) {m.name}"
+                    "label": m_name,
+                    "insertText": f"{m_name}($1)",
+                    "detail": f"(Method) {m_name}"
                 })
             result[ts.name] = members
         return result
@@ -210,144 +291,36 @@ class SymbolTable:
         return result
 
 class Parser:
-    @staticmethod
-    def create_default_registry():
-        registry = KeywordRegistry()
-
-        registry.keywords.add("#include")
-
-        registry.register_statement("dim", Parser.parseDim)
-        registry.register_statement("as", None)
-
-        registry.register_type_block_keyword("declare", Parser.parseTypeMethod)
-        registry.register_type_block_keyword("static", Parser.parseStaticField)
-        registry.register_type_block_keyword("public", None)
-        registry.register_type_block_keyword("private", None)
-
-        return registry
-
     # Dataohjattu syntaksiperheiden määrittely
     grammar_table = {
         "include": {
-            "patterns": [
-                ["#include", "\"", "IDENT", "\""]
-            ],
+            "patterns": [["#include", "STRING"]],
             "handler": "parseInclude"
         },
         "dim": {
-            "patterns": [
-                ["Dim", "IDENT", "As", "IDENT"],
-                ["Dim", "IDENT", "As", "IDENT"],
-                ["Dim", "IDENT", "IDENT"]
-            ],
+            "patterns": [["Dim"]],
             "handler": "parseDim"
         },
+        "type": {
+            "patterns": [["Type"]],
+            "handler": "parseTypeBlock"
+        },
         "var_decl": {
-            "patterns": [
-                ["IDENT"],
-                ["IDENT", "ArraySpec"],
-                ["IDENT", "Initializer"],
-                ["IDENT", "ArraySpec", "Initializer"]
-            ],
+            "patterns": [["IDENT", "As", "IDENT"]],
             "handler": "parseVarDecl"
-        },
-        "type_grammar": {
-            "patterns": [
-                ["IDENT"],
-                ["IDENT", "*", "NUMBER"],
-                ["IDENT", "Ptr"],
-                ["IDENT", "Ptr", "Ptr"],
-                ["Function", "(", "ParamList", ")", "As", "IDENT"]
-            ],
-            "handler": "parseTypeGrammar"
-        },
-        "expr": {
-            "patterns": [
-                ["NUMBER"],
-                ["IDENT"],
-                ["IDENT", "(", "ExprList", ")"],
-                ["Expr", "+", "Expr"],
-                ["Expr", "-", "Expr"],
-                ["Expr", "*", "Expr"],
-                ["Expr", "/", "Expr"]
-            ],
-            "handler": "parseExpr"
-        },
-        "exprlist": {
-            "patterns": [
-                ["Expr"],
-                ["Expr", "COMMA", "ExprList"]
-            ],
-            "handler": "parseExprList"
-        },
-        "arrayspec": {
-            "patterns": [
-                ["(", "Expr", ")"],
-                ["(", "Expr", "To", "Expr", ")"]
-            ],
-            "handler": "parseArraySpec"
-        },
-        "initializer": {
-            "patterns": [
-                ["=", "Expr"],
-                ["=>", "Expr"]
-            ],
-            "handler": "parseInitializer"
-        },
-        "paramlist": {
-            "patterns": [
-                ["Param"],
-                ["Param", "COMMA", "ParamList"]
-            ],
-            "handler": "parseParamList"
-        },
-        "type_syntax": {
-            "patterns": [
-                ["IDENT"],
-                ["IDENT", "*", "NUMBER"],
-                ["IDENT", "Ptr"],
-                ["IDENT", "Ptr", "Ptr"]
-            ],
-            "handler": "parseTypeSyntax"
-        },
-        "type_field": {
-            "patterns": [
-                ["IDENT", "As", "IDENT"]
-            ],
-            "handler": "parseTypeField"
-        },
-        "type_static_field": {
-            "patterns": [
-                ["Static", "IDENT", "As", "IDENT"]
-            ],
-            "handler": "parseStaticField"
-        },
-        "type_visibility_field": {
-            "patterns": [
-                ["Public", ":", "IDENT", "As", "IDENT"],
-                ["Private", ":", "IDENT", "As", "IDENT"]
-            ],
-            "handler": "parseTypeField"
-        },
-        "type_method": {
-            "patterns": [
-                ["Declare", "Function", "IDENT", "(", "ParamList", ")", "As", "IDENT"],
-                ["Declare", "Sub", "IDENT", "(", "ParamList", ")"]
-            ],
-            "handler": "parseTypeMethod"
         }
     }
-
 
     def __init__(self, tokens, symbol_table, base_path=""):
         self.tokens = tokens
         self.pos = 0
         self.symbol_table = symbol_table
         self.base_path = base_path
+        self.current_type = None
+        if Tokenizer.KEYWORD_REGISTRY is None:
+            Tokenizer.KEYWORD_REGISTRY = KeywordRegistry.create_default_registry()
         self.registry = Tokenizer.KEYWORD_REGISTRY
-        self.statement_handlers = self.registry.statement_handlers.copy()
 
-    # === UTILITY FUNCTIONS ===
     def current(self):
         return self.tokens[self.pos]
 
@@ -377,17 +350,9 @@ class Parser:
         raise SyntaxError(f"Expected {type_} '{value}' at line {tok.line}, got {tok.type} '{tok.value}'")
 
     def _match_pattern(self, pattern):
-        """
-        Yrittää matchata patternin nykyisestä token‑positiosta.
-        Pattern on lista merkkijonoja, esim:
-            ["Identifier", "As", "Type"]
-        Palauttaa True/False.
-        """
         for i, pat in enumerate(pattern):
             tok = self.peek(i)
-            # Normalisoi tokenin "symbolinen nimi"
             tname = tok.type if tok.type != "KEYWORD" else tok.value.capitalize()
-
             if tname.lower() != pat.lower():
                 return False
         return True
@@ -397,432 +362,459 @@ class Parser:
             for pattern in entry["patterns"]:
                 if self._match_pattern(pattern):
                     handler = getattr(self, entry["handler"], None)
-                    if handler:
-                        return handler()
+                    if handler: return handler()
         return None
 
-    # === PARSER LOGIC ===
     def parseBlock(self):
         nodes = []
         while self.current().type != "EOF":
             node = self.parseStatement()
-            if node:
-                nodes.append(node)
+            if node: nodes.append(node)
         return nodes
 
     def parseStatement(self):
         tok = self.current()
-        if tok.type == "KEYWORD" and tok.value.lower() == "type":
-            return self.parseTypeBlock()
-        if tok.type == "KEYWORD" and tok.value.lower() == "end":
-            nxt = self.peek()
-            if nxt.type == "KEYWORD" and nxt.value.lower() == "type":
+
+        # 1. Tarkistetaan rekisteröidyt avainsanat (dim, type, function, sub jne.)
+        if tok.type == "KEYWORD":
+            handler = self.registry.statement_handlers.get(tok.value.lower())
+            if handler:
+                return handler(self)
+
+        # 2. Tarkistetaan sijoituslauseet (alkavat tunnisteella)
+        if tok.type == "IDENT":
+            node = self.parseAssignment()
+            if node: return node
+
+            # Jos ei sijoitus, ohitetaan rivi (esim. print tai muu kutsu)
+            line = tok.line
+            while self.current().type != "EOF" and self.current().line == line:
                 self.advance()
-                self.advance()
-                return None
+            return None
+
+        # 3. Tarkistetaan dataohjattu grammar_table muille rakenteille
         node = self._dispatch_grammar()
-        if node is not None:
-            return node
+        if node is not None: return node
+
         self.advance()
         return None
 
     def parseInclude(self):
         self.expect("KEYWORD", "#include")
-        if self.match("KEYWORD", '"') or self.match("IDENT", '"'):
-            path_tok = self.expect("IDENT")
-            inc_name = path_tok.value
-            self.expect("KEYWORD", '"')
+        tok = self.current()
+        if tok.type == "STRING":
+            inc_name = tok.value
+            self.advance()
             full_path = os.path.join(self.base_path, inc_name)
             if os.path.exists(full_path):
                 with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
                     code = f.read()
-                tokenizer = Tokenizer(code, full_path)
-                tokens = tokenizer.get_tokens()
-                sub_parser = Parser(tokens, self.symbol_table, os.path.dirname(full_path))
+                tokenizer = tokenize_source(code, full_path)
+                sub_parser = Parser(tokenizer.get_tokens(), self.symbol_table, os.path.dirname(full_path))
                 sub_parser.parseBlock()
         else:
-            tok = self.current()  # <-- tässä määritellään tok
-            while self.current().type != "EOF" and self.current().line == tok.line:
+            line = tok.line
+            while self.current().type != "EOF" and self.current().line == line:
                 self.advance()
         return None
 
-    def parseVisibility(self):
+    def _handle_type_declare(self, visibility, tnode):
+        # Ohitetaan 'declare'
+        self.advance()
+
+        # Katsotaan onko 'sub' vai 'function'
+        kind_tok = self.current()
+        kind = kind_tok.value.lower()
+        self.advance()
+
+        # Metodin nimi
+        name_tok = self.expect("IDENT")
+        method_name = name_tok.value
+
+        # Parsitaan parametrit (esim. '(yksi as integer)')
+        params = []
+        if self.current().type == "LPAREN":
+            self.advance()
+            while self.current().type != "RPAREN" and self.current().type != "EOF":
+                p_name = self.expect("IDENT").value
+                p_type = "Any"
+                if self.current().value.lower() == "as":
+                    self.advance()
+                    p_tok = self.current()
+                    p_type = p_tok.value
+                    self.advance()
+                params.append((p_name, p_type))
+                if self.current().type == "COMMA":
+                    self.advance()
+            self.expect("RPAREN")
+
+        # Paluutyyppi (vain funktioille)
+        ret_type = "Void"
+        if kind == "function" and self.current().value.lower() == "as":
+            self.advance()
+            ret_type = self.current().value
+            self.advance()
+
+        # Tallennetaan tyypin tietoihin
+        new_method = MethodNode(method_name, params, ret_type, visibility)
+        tnode.methods.append(new_method)
+        if self.current_type:
+            self.current_type.methods.append(new_method)
+        return True, visibility
+
+    def _handle_type_static(self, visibility, tnode):
+        fnode = self.parseStaticField(visibility)
+        if fnode:
+            tnode.fields.append(fnode)
+            # Päivitetään symbolitaulun TypeSymbol
+            ts = self.symbol_table.getType(tnode.name)
+            if ts:
+                ts.fields.append(fnode)
+                if fnode.is_static:
+                    ts.static_fields.append(fnode)
+        return True, visibility
+
+    def _handle_type_dim(self, visibility, tnode):
+        dim_node = self.parseDim()
+        # Käydään läpi kaikki dim-lauseessa määritellyt nimet
+        for i, n in enumerate(dim_node.names):
+            # Haetaan kunkin muuttujan yksilöllinen tyyppi vars_meta-listasta
+            # (tämä tukee esim. 'dim a as integer, b as string' -tyylisiä rakenteita)
+            t_name = dim_node.vars_meta[i][1] if hasattr(dim_node, 'vars_meta') else dim_node.type_name
+            fnode = FieldNode(n, t_name, visibility)
+            tnode.fields.append(fnode)
+
+            # Päivitetään myös symbolitaulussa oleva tyyppi-instanssi
+            ts = self.symbol_table.getType(tnode.name)
+            if ts:
+                ts.fields.append(fnode)
+        return True, visibility
+
+    def _dispatch_type_block_line(self, current_visibility, tnode):
         tok = self.current()
         if tok.type == "KEYWORD" and tok.value.lower() in ("public", "private"):
             vis = tok.value.lower()
             self.advance()
-            if self.match("COMMA") or self.match("KEYWORD", ":"):
-                pass
-            return vis
-        return None
+            if self.current().type in ("COLON", "KEYWORD") and self.current().value == ":":
+                self.advance()
+            return True, vis
+        if tok.type == "KEYWORD":
+            handler = self.registry.get_type_block_handler(tok.value)
+            if handler:
+                res = handler(self, current_visibility, tnode)
+                return res if isinstance(res, tuple) else (True, current_visibility)
+        if tok.type == "IDENT" and self.peek().value.lower() == "as":
+            fnode = self.parsePlainField(current_visibility)
+            tnode.fields.append(fnode)
+            ts = self.symbol_table.getType(tnode.name)
+            if ts: ts.fields.append(fnode)
+            return True, current_visibility
+        return False, current_visibility
 
-#==================================
-    def parseType(self):
-        return self.parseTypeBlock()
+    def parseTypeBlock(self):
+        self.expect("KEYWORD", "Type")
+        name_tok = self.expect("IDENT")
+        type_name = name_tok.value
+
+        tnode = TypeNode(name=type_name, fields=[], methods=[])
+        ts = TypeSymbol(type_name, [], [])
+        self.symbol_table.addType(ts)
+
+        self.current_type = ts
+        current_visibility = "public"
+
+        while self.current().type != "EOF":
+            tok = self.current()
+            if tok.value.lower() == "end" and self.peek().value.lower() == "type":
+                self.advance() # end
+                self.advance() # type
+                break
+
+            handled, current_visibility = self._dispatch_type_block_line(current_visibility, tnode)
+            if not handled:
+                self.advance()
+
+        self.current_type = None
+        return tnode
 
     def parsePlainField(self, visibility="public"):
-        """Käsittelee tavallisen kentän IDENT AS IDENT"""
-        name_tok = self.expect("IDENT")
+        name = self.expect("IDENT").value
         self.expect("KEYWORD", "as")
-        type_tok = self.expect("IDENT")
-        return FieldNode(name_tok.value, type_tok.value, visibility)
-
-#=================================
-    def _set_visibility(self, vis, current_vis):
-        current_vis = vis
-        self.advance()
-        return None
-
-    def parseTypeField(self, visibility="public"):
-        # käsitellään public/private etukäteen
-        tok = self.current()
-        if tok.type == "KEYWORD" and tok.value.lower() in ("public", "private"):
-            visibility = tok.value.lower()
+        type_name = self.expect("IDENT").value
+        # Tuki PTR-avainsanalle (esim. As Integer Ptr)
+        if self.current().value.lower() == "ptr":
+            type_name += " Ptr"
             self.advance()
-            self.match("COMMA")
-            self.match("KEYWORD", ":")  # hyväksytään kaksoispiste
-        # käsitellään static
-        is_static = False
-        tok = self.current()
-        if tok.type == "KEYWORD" and tok.value.lower() == "static":
-            is_static = True
-            self.advance()
-        # varsinainen kenttä
-        name_tok = self.expect("IDENT")
-        self.expect("KEYWORD", "as")
-        type_tok = self.expect("IDENT")
-        return FieldNode(name_tok.value, type_tok.value, visibility, is_static)
+        return FieldNode(name, type_name, visibility)
 
     def parseTypeMethod(self, visibility="public"):
         self.expect("KEYWORD", "declare")
-        tok = self.current()
-        if (tok.type == "KEYWORD" or tok.type == "IDENT") and tok.value.lower() in ("function", "sub"):
-            kind = tok.value.lower()  # tallenna, onko function vai sub
-            self.advance()
-            name_tok = self.expect("IDENT")
-            params = self.parseParameters()
-            return_type = None
-            if kind == "function":
-                if self.match("KEYWORD", "as"):
-                    return_type_tok = self.expect("IDENT")
-                    return_type = return_type_tok.value
-            return MethodNode(name_tok.value, params, return_type, visibility)
-        else:
-            self.advance()
-            return None
+        kind = self.current().value.lower()
+        self.advance()
+        name = self.expect("IDENT").value
+        params = self.parseParameters()
+        ret_type = self.expect("IDENT").value if kind == "function" and self.match("KEYWORD", "as") else None
+        return MethodNode(name, params, ret_type, visibility)
 
     def parseParameters(self):
         params = []
         if self.match("KEYWORD", "("):
             while not self.match("KEYWORD", ")"):
-                param_name = self.expect("IDENT").value
-                param_type = None
-                if self.match("KEYWORD", "as"):
-                    param_type = self.expect("IDENT").value
-                params.append((param_name, param_type))
+                p_name = self.expect("IDENT").value
+                p_type = self.expect("IDENT").value if self.match("KEYWORD", "as") else None
+                params.append((p_name, p_type))
                 self.match("COMMA")
         return params
-#=============================================
 
     def parseDim(self):
-        """Pääfunktio DIM-lauseelle, tukee kaikkia FreeBASICin muotoja."""
         self.expect("KEYWORD", "dim")
+        shared = self.match("KEYWORD", "shared")
 
-        shared = False
-        if self.match("KEYWORD", "shared"):
-            shared = True
-
-        variables = []
-        type_name = None
-
-        # Tarkista DIM AS Type -muoto
-        if self.match("KEYWORD", "as"):
-            type_name, variables = self.parseDimAsType()
-        else:
-            variables, type_name = self.parseDimNamesThenType()
-
-        # Arrayt ja initializerit jokaiselle muuttujalle
-        array_bounds_list = []
-        initializer = None
-        for idx, var in enumerate(variables):
-            bounds, init = self.parseDimVarExtras()
-            array_bounds_list.append(bounds)
-            if idx == 0:  # FB sallii initializer vain ensimmäiselle muuttujalle
-                initializer = init
-
-            # Lisää symbolitauluun
-            self.symbol_table.addVariable(VariableSymbol(var, type_name))
-
-        node = DimNode(variables, type_name)
-        node.array_bounds = array_bounds_list
-        node.initializer = initializer
-        node.shared = shared
-        return node
-
-    def parseDimAsType(self):
-        """DIM AS TypeName var1, var2 ..."""
-        type_name = self.expect("IDENT").value
-        variables = []
+        vars_info = []
 
         while True:
-            var_tok = self.expect("IDENT")
-            variables.append(var_tok.value)
-            if not self.match("COMMA"):
-                break
+            name_tok = self.expect("IDENT")
+            name = name_tok.value
 
-        return type_name, variables
+            bounds = []
+            if self.match("LPAREN"):
+                while True:
+                    part = []
+                    while self.current().type not in ("RPAREN", "COMMA", "EOF"):
+                        part.append(self.current().value)
+                        self.advance()
+                    bounds.append(" ".join(part))
+                    if not self.match("COMMA"):
+                        break
+                self.expect("RPAREN")
 
-    def parseDimNamesThenType(self):
-        """DIM var1, var2 ... AS TypeName tai suffix-muodot"""
-        variables = []
-        type_name = None
+            type_name = None
+            if self.match("KEYWORD", "as"):
+                type_name = self.expect("IDENT").value
+            else:
+                suffixes = {'$': 'String', '%': 'Integer', '#': 'Double', '!': 'Single', '&': 'LongInt'}
+                type_name = suffixes.get(name[-1:], "Any")
 
-        while True:
-            tok = self.current()
-            if tok.type != "IDENT":
-                break
-            var_name = tok.value
-
-            # Suffix-tuki (%, $, #, !, &)
-            suffix_map = {'$': 'String', '%': 'Integer', '#': 'Double', '!': 'Single', '&': 'LongInt'}
-            if var_name[-1:] in suffix_map:
-                type_name = suffix_map[var_name[-1:]]
-                var_name = var_name[:-1]
-
-            variables.append(var_name)
-            self.advance()
-            if not self.match("COMMA"):
-                break
-
-        # Jos rivillä on AS TypeName
-        if self.match("KEYWORD", "as"):
-            type_name = self.expect("IDENT").value
-
-        return variables, type_name
-
-    def parseDimVarExtras(self):
-        """Käsittelee array bounds ja initializer jokaiselle muuttujalle."""
-        bounds = []
-        initializer = None
-
-        # Array-spesifikaatio
-        if self.match("KEYWORD", "("):
-            while not self.match("KEYWORD", ")"):
-                tok = self.current()
-                if tok.type == "NUMBER":
-                    bounds.append(int(tok.value))
-                elif tok.type == "KEYWORD" and tok.value.lower() == "to":
-                    bounds.append("to")
-                elif tok.type == "IDENT":
-                    bounds.append(tok.value)
-                elif tok.type == "KEYWORD" and tok.value == "...":
-                    bounds.append("...")
+            initializer = None
+            if self.current().type == "KEYWORD" and self.current().value in ("=", "=>"):
+                self.advance()
+                initializer = self.current().value
                 self.advance()
 
-        # Initializer
-        if self.match("KEYWORD", "=") or self.match("KEYWORD", "=>"):
-            init_tok = self.current()
-            initializer = init_tok.value
-            self.advance()
+            vars_info.append((name, type_name, bounds, initializer))
 
-        return bounds, initializer
+            if not self.match("COMMA"):
+                break
 
-#================================================================
+        # Luodaan yksi solmu, joka sisältää kaikki määritellyt nimet
+        all_names = [info[0] for info in vars_info]
+        # Käytetään ensimmäisen muuttujan tyyppiä (BASIC-tyylinen oletus)
+        primary_type = vars_info[0][1] 
+
+        for n, t, b, i in vars_info:
+            self.symbol_table.addVariable(VariableSymbol(n, t))
+
+        node = DimNode(all_names, primary_type)
+        node.shared = shared
+        # Tallennetaan lisätiedot (bounds/init) tarvittaessa listana tai ensimmäisen mukaan
+        node.vars_meta = vars_info 
+
+        return node
+
+
     def parseStaticField(self, visibility="public"):
         self.expect("KEYWORD", "static")
         name_tok = self.expect("IDENT")
-        self.expect("KEYWORD", "as")
-        type_tok = self.expect("IDENT")
-        return FieldNode(name_tok.value, type_tok.value, visibility, is_static=True)
+        name = name_tok.value
+        type_name = "Any"
+        if self.match("KEYWORD", "as"):
+            type_tok = self.expect("IDENT")
+            type_name = type_tok.value
+            # Tuki pointterityypeille myös staattisissa kentissä
+            if self.current().value.lower() == "ptr":
+                type_name += " Ptr"
+                self.advance()
+        return FieldNode(name, type_name, visibility, is_static=True)
 
-    # - lisäyskorvaus alkaa: Parser / parseVarDecl / vaihe 5
     def parseVarDecl(self):
-        """Stub-var_decl handler (vaihe 5)."""
         tok = self.current()
         if tok.type == "IDENT":
             name = tok.value
             self.advance()
             return {"kind": "VarDecl", "name": name}
         return None
-    # - lisäyskorvaus loppuu
-    # - lisäyskorvaus alkaa: Parser / parseTypeGrammar / vaihe 7
-    def parseTypeGrammar(self):
-        """Stub-type_grammar handler (vaihe 7)."""
-        tok = self.current()
-        if tok.type == "IDENT":
-            name = tok.value
-            self.advance()
-            return {"kind": "TypeGrammar", "name": name}
-        return None
-    # - lisäyskorvaus loppuu
-    # - lisäyskorvaus alkaa: Parser / parseExpr / vaihe 9
+
     def parseExpr(self):
-        """Stub-expr handler (vaihe 9)."""
         tok = self.current()
         if tok.type in ("NUMBER", "IDENT"):
-            value = tok.value
+            val = tok.value
             self.advance()
-            return {"kind": "Expr", "value": value}
+            return {"kind": "Expr", "value": val}
         return None
-    # - lisäyskorvaus loppuu
-    # - lisäyskorvaus alkaa: Parser / parseExprList / vaihe 11
-    def parseExprList(self):
-        """Stub-exprlist handler (vaihe 11)."""
-        items = []
-        expr = self.parseExpr()
-        if expr:
-            items.append(expr)
-        while self.current().type == "COMMA":
-            self.advance()
-            expr = self.parseExpr()
-            if expr:
-                items.append(expr)
-            else:
-                break
-        return {"kind": "ExprList", "items": items}
-    # - lisäyskorvaus loppuu
-    # - lisäyskorvaus alkaa: Parser / parseArraySpec / vaihe 13
-    def parseArraySpec(self):
-        """Stub-arrayspec handler (vaihe 13)."""
-        items = []
-        if self.match("KEYWORD", "("):
-            # read until ')'
-            while not self.match("KEYWORD", ")"):
-                tok = self.current()
-                items.append(tok.value)
-                self.advance()
-        return {"kind": "ArraySpec", "items": items}
-    # - lisäyskorvaus loppuu
-    # - lisäyskorvaus alkaa: Parser / parseInitializer / vaihe 15
-    def parseInitializer(self):
-        """Stub-initializer handler (vaihe 15)."""
-        items = []
-        tok = self.current()
-        if tok.type == "KEYWORD" and tok.value in ("=", "=>"):
-            op = tok.value
-            self.advance()
-            expr = self.parseExpr()
-            return {"kind": "Initializer", "op": op, "expr": expr}
-        return None
-    # - lisäyskorvaus loppuu
-    # - lisäyskorvaus alkaa: Parser / parseParamList / vaihe 17
-    def parseParamList(self):
-        """Stub-paramlist handler (vaihe 17)."""
-        items = []
-        tok = self.current()
-        if tok.type == "IDENT":
-            name = tok.value
-            self.advance()
-            items.append({"kind": "Param", "name": name})
-        while self.current().type == "COMMA":
-            self.advance()
-            tok = self.current()
-            if tok.type == "IDENT":
-                name = tok.value
-                self.advance()
-                items.append({"kind": "Param", "name": name})
-            else:
-                break
-        return {"kind": "ParamList", "items": items}
-    # - lisäyskorvaus loppuu
-    # - lisäyskorvaus alkaa: Parser / parseTypeSyntax / vaihe 19
-    def parseTypeSyntax(self):
-        """Stub-type_syntax handler (vaihe 19)."""
-        tok = self.current()
-        if tok.type == "IDENT":
-            name = tok.value
-            self.advance()
-            return {"kind": "TypeSyntax", "name": name}
-        return None
-    # - lisäyskorvaus loppuu
-
-
-
-# === AI_INSERT_POINT:UTILITY_FUNCTIONS ===
-# Alustetaan rekisteri nyt, kun Parser on täysin määritelty
-
-    def parseExpr_at(self, pos):
-        """
-        Kokeile parsia Expr alkaen annetusta pos-indeksistä.
-        Ei muuta self.pos-arvoa.
-        Palauttaa (node, new_pos) tai (None, pos).
-        """
-        tokens = self.tokens
-        length = len(tokens)
-
-        # Jos pos on ulkona, ei matchia
-        if pos >= length:
-            return None, pos
-
-        tok = tokens[pos]
-
-        # 1) NUMBER → Expr
-        if tok.type == "NUMBER":
-            return {"kind": "Expr", "value": tok.value}, pos + 1
-
-        # 2) IDENT → Expr
-        if tok.type == "IDENT":
-            return {"kind": "Expr", "value": tok.value}, pos + 1
-
-        # 3) IDENT "(" ... ")"  (kokeiluversio funktiokutsulle)
-        if tok.type == "IDENT":
-            if pos + 1 < length and tokens[pos + 1].type == "(":
-                i = pos + 2
-                depth = 1
-                while i < length:
-                    if tokens[i].type == "(":
-                        depth += 1
-                    elif tokens[i].type == ")":
-                        depth -= 1
-                        if depth == 0:
-                            return {"kind": "ExprCall", "name": tok.value}, i + 1
-                    i += 1
-
-        # Ei matchia
-        return None, pos
     
-    def parseTypeBlock(self):
-        self.expect("KEYWORD", "Type")
-        type_name_tok = self.expect("IDENT")
-        tnode = TypeNode(name=type_name_tok.value, fields=[], methods=[])
-        self.symbol_table.addType(TypeSymbol(tnode.name, [], []))
-        current_visibility = "public"
-        while True:
-            tok = self.current()
-            if tok.type == "KEYWORD":
-                val = tok.value.lower()
-                if val == "end" and self.peek().type == "KEYWORD" and self.peek().value.lower() == "type":
-                    self.advance()
-                    self.advance()
-                    break
-                if val in ("public", "private"):
-                    current_visibility = val
-                    self.advance()
-                    if self.current().type == ":" or (self.current().type == "KEYWORD" and self.current().value == ":"):
-                        self.advance()
-                    continue
-                if val == "static":
-                    fnode = self.parseStaticField(current_visibility)
-                    tnode.fields.append(fnode)
-                    continue
-                if val == "dim":
-                    dim_node = self.parseDim()
-                    for n in dim_node.names:
-                        fnode = FieldNode(n, dim_node.type_name, current_visibility)
-                        tnode.fields.append(fnode)
-                    continue
-                if val == "declare":
-                    mnode = self.parseTypeMethod(current_visibility)
-                    if mnode:
-                        tnode.methods.append(mnode)
-                    continue
-            if tok.type == "IDENT":
-                fnode = self.parsePlainField(current_visibility)
-                tnode.fields.append(fnode)
-                continue
+    def parseAssignment(self):
+        found_eq = False
+        idx = self.pos
+        start_line = self.tokens[idx].line
+
+        # Etsitään onko rivillä '=' ennen seuraavaa lausetta (COLON tai rivinvaihto)
+        while idx < len(self.tokens) and self.tokens[idx].line == start_line:
+            if self.tokens[idx].type == "COLON":
+                break
+            if self.tokens[idx].type == "KEYWORD" and self.tokens[idx].value == "=":
+                found_eq = True
+                break
+            idx += 1
+
+        if not found_eq:
+            return None
+
+        target_parts = []
+        # Luetaan kaikki ennen yhtäsuuruusmerkkiä (identit, pisteet, sulut)
+        while self.current().type != "EOF" and not (self.current().type == "KEYWORD" and self.current().value == "="):
+            target_parts.append(self.current().value)
             self.advance()
-        return tnode
+
+        target_str = "".join(target_parts).strip()
+        self.match("KEYWORD", "=")
+
+        value_tokens = []
+        # Luetaan arvo seuraavaan komentoon tai rivin loppuun asti
+        while self.current().type != "EOF" and self.current().line == start_line and self.current().value != ":":
+            value_tokens.append(self.current().value)
+            self.advance()
+
+        value_str = " ".join(value_tokens).strip()
+
+        if self.current().value == ":":
+            self.advance()
+
+        return AssignmentNode(target_str, value_str)
+    def consume(self):
+        tok = self.current()
+        self.advance()
+        return tok
+    def parseMethodImplementation(self):
+        # Haetaan 'function' tai 'sub'
+        kind_tok = self.consume()
+        kind = kind_tok.value.lower()
+
+        # Haetaan nimi (voi olla 'Kangaroo.jump_set' tai vain 'Calculate')
+        name_parts = []
+        name_parts.append(self.expect("IDENT").value)
+        while self.current().type == "DOT" or (self.current().type == "IDENT" and name_parts):
+            # FB sallii joskus pisteen sijasta välilyönnin tai pelkän jatkon
+            if self.current().type == "DOT": self.advance()
+            if self.current().type == "IDENT":
+                name_parts.append(self.current().value)
+                self.advance()
+            else: break
+
+        full_name = ".".join(name_parts)
+
+        # Parsitaan parametrit, jotta tiedetään paluutyyppi
+        params = []
+        if self.current().type == "LPAREN":
+            self.advance()
+            while self.current().type != "RPAREN" and self.current().type != "EOF":
+                if self.current().value.lower() in ("byval", "byref"): self.advance()
+                p_name = self.expect("IDENT").value
+                p_type = "Any"
+                if self.match("KEYWORD", "as"):
+                    p_type = self.expect("IDENT").value
+                params.append((p_name, p_type))
+                self.match("COMMA")
+            self.expect("RPAREN")
+
+        ret_type = "Void"
+        if kind == "function" and self.match("KEYWORD", "as"):
+            ret_type = self.expect("IDENT").value
+
+        # Jos kyseessä on globaali funktio (ei pistettä nimessä), lisätään se muuttujiin/symboleihin
+        if "." not in full_name:
+            self.symbol_table.addVariable(VariableSymbol(full_name, f"{kind.capitalize()} returning {ret_type}"))
+
+        # Hypätään rungon yli
+        while self.current().type != "EOF":
+            curr = self.current()
+            if curr.type == "KEYWORD" and curr.value.lower() == "end":
+                nxt = self.peek()
+                if nxt.value.lower() == kind:
+                    self.advance() # end
+                    self.advance() # function/sub
+                    break
+            self.advance()
+        return None
+    def _handle_type_property(self, visibility, tnode):
+        # Ohitetaan 'property'
+        self.advance()
+
+        # Ominaisuuden nimi
+        name_tok = self.expect("IDENT")
+        prop_name = name_tok.value
+
+        # Parametrit (Propertylla voi olla indeksejä, esim. Item(index As Integer))
+        params = []
+        if self.current().type == "LPAREN":
+            self.advance()
+            while self.current().type != "RPAREN" and self.current().type != "EOF":
+                # Ohitetaan FreeBasicin ByVal/ByRef avainsanat
+                if self.current().value.lower() in ("byval", "byref"):
+                    self.advance()
+
+                p_name_tok = self.expect("IDENT")
+                p_name = p_name_tok.value
+                p_type = "Any"
+                if self.current().value.lower() == "as":
+                    self.advance()
+                    p_type = self.current().value
+                    self.advance()
+                params.append((p_name, p_type))
+                if self.current().type == "COMMA":
+                    self.advance()
+            self.expect("RPAREN")
+
+        # Paluutyyppi (Propertylla on aina tyyppi)
+        ret_type = "Any"
+        if self.current().value.lower() == "as":
+            self.advance()
+            ret_type = self.current().value
+            self.advance()
+
+        # Lisätään tieto AST-solmuun ja symbolitauluun
+        # Käytetään MethodNodea, koska Property käyttäytyy kutsuessa samoin
+        new_prop = MethodNode(prop_name, params, ret_type, visibility)
+        tnode.methods.append(new_prop)
+        if self.current_type:
+            self.current_type.methods.append(new_prop)
+
+        return True, visibility
+    def parseGlobalDeclare(self):
+        self.expect("KEYWORD", "declare")
+        kind = self.current().value.lower() # sub tai function
+        self.advance()
+
+        name = self.expect("IDENT").value
+        # Tässä voisi parsia parametrit samoin kuin yllä, 
+        # mutta lisätään se nyt ainakin symbolitauluun
+        self.symbol_table.addVariable(VariableSymbol(name, f"Declared {kind}"))
+
+        # Ohitetaan loppurivi
+        line = self.current().line
+        while self.current().line == line and self.current().type != "EOF":
+            self.advance()
+        return None
+
+Tokenizer.KEYWORD_REGISTRY = KeywordRegistry.create_default_registry()
 
 
-Tokenizer.KEYWORD_REGISTRY = Parser.create_default_registry()
+def tokenize_source(source, filename=""):
+    if Tokenizer.KEYWORD_REGISTRY is None:
+        Tokenizer.KEYWORD_REGISTRY = KeywordRegistry.create_default_registry()
+    t = Tokenizer(source, filename)
+    t._tokenize()
+    return t
+
+#```
+
 

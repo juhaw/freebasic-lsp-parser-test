@@ -1,5 +1,6 @@
 import os
-from fb_parser_GPT_static import Tokenizer, Parser, SymbolTable, FieldNode, MethodNode, TypeNode, DimNode
+from fb_parser_GPT_static import tokenize_source, Parser, SymbolTable, FieldNode, MethodNode, TypeNode, DimNode
+#from fb_parser_GPT_static import tokenize_source
 
 try:
     import pyperclip
@@ -26,8 +27,10 @@ def aja_testi():
     output_lines = []
 
     # --- TOKENISOINTI ---
-    tokenizer = Tokenizer(koodi, testitiedosto)
+    #tokenizer = Tokenizer(koodi, testitiedosto)
+    tokenizer = tokenize_source(koodi, testitiedosto)
     tokens = tokenizer.get_tokens()
+
     output_lines.append("--- TOKENS ---")
     for t in tokens:
         output_lines.append(f"{t.line:03}:{t.column:02} {t.type:<10} '{t.value}'")

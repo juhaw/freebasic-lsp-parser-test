@@ -1,5 +1,6 @@
 import re
 import os
+import ast
 
 # === KONFIGURAATIO ===
 TARGET_FILE = 'fb_parser_GPT_static.py'
@@ -32,6 +33,7 @@ def tallenna_tiedosto(tiedosto, sisalto):
         print(f"❌ Virhe tallennuksessa: {e}")
         return False
 
+
 def kasittele_lohko(block, nykyinen_sisalto):
     raw_lines = block.split('\n')
     header_lines = []
@@ -40,6 +42,7 @@ def kasittele_lohko(block, nykyinen_sisalto):
 
     for idx, line in enumerate(raw_lines):
         clean = line.strip()
+        # Käytetään stripattuja tunnisteita vertailuun
         if any(clean.startswith(t) for t in tunnisteet):
             header_lines.append(clean)
             code_start_idx = idx + 1
@@ -49,131 +52,119 @@ def kasittele_lohko(block, nykyinen_sisalto):
             code_start_idx = idx
             break
 
+    # Puhdistetaan nimet huolellisesti
     class_name = next((l.split(':CLASS:')[1].strip() for l in header_lines if ':CLASS:' in l), None)
-    var_name = next((l.split(':VARIABLE:')[1].strip() for l in header_lines if ':VARIABLE:' in l), None)
     func_name = next((l.split(':FUNCTION:')[1].strip() for l in header_lines if ':FUNCTION:' in l), None)
+    var_name = next((l.split(':VARIABLE:')[1].strip() for l in header_lines if ':VARIABLE:' in l), None)
     
     is_variable = var_name is not None
     item_name = var_name if is_variable else func_name
+    code_to_insert = '\n'.join(raw_lines[code_start_idx:]).rstrip()
 
-    if not item_name:
+    if not item_name and not class_name:
         return nykyinen_sisalto
 
-    code_to_insert = '\n'.join(raw_lines[code_start_idx:]).rstrip()
-    target_name = f"{class_name}.{item_name}" if class_name and item_name else (item_name or class_name)
+    try:
+        tree = ast.parse(nykyinen_sisalto)
+    except Exception as e:
+        print(f"❌ AST-VIRHE: Tiedostossa on syntaksivirhe, ei voida analysoida: {e}")
+        return nykyinen_sisalto
 
-    match_start = -1
-    if class_name:
-        c_match = re.search(rf'class\s+{re.escape(class_name)}\s*[:\(]', nykyinen_sisalto)
-        if c_match:
-            after_c = nykyinen_sisalto[c_match.start():]
-            p = rf'\n([ \t]+){re.escape(item_name)}\s*=' if is_variable else rf'\n([ \t]+)def\s+{re.escape(item_name)}\s*\('
-            m = re.search(p, after_c)
-            if m: match_start = c_match.start() + m.start() + 1
-    else:
-        p = rf'^{re.escape(item_name)}\s*=' if is_variable else rf'^def\s+{re.escape(item_name)}\s*\('
-        m = re.search(p, nykyinen_sisalto, re.MULTILINE)
-        if m: match_start = m.start()
+    found_node = None
+    parent_class_node = None
+    target_lines = nykyinen_sisalto.split('\n')
 
-    if match_start != -1:
-        start_line_no = nykyinen_sisalto[:match_start].count('\n') + 1
-        raw_after = nykyinen_sisalto[match_start:]
-        c_lines = raw_after.split('\n')
-        
-        # --- PARANNETTU LOPUN TUNNISTUS ---
-        e_idx = 1
-        first_line = c_lines[0]
-        base_indent = len(first_line) - len(first_line.lstrip())
-        
-        # Tarkistetaan onko kyseessä sanakirja/lista
-        is_multiline_container = '{' in first_line or '[' in first_line or '(' in first_line
-
-        for j, line in enumerate(c_lines):
-            if j == 0: continue
-            if not line.strip():
-                continue
-            
-            curr_indent = len(line) - len(line.lstrip())
-            
-            # Jos ollaan sisennetty syvemmälle, koodi jatkuu varmasti
-            if curr_indent > base_indent:
-                e_idx = j + 1
-                continue
-            
-            # Jos ollaan samalla tasolla:
-            if curr_indent == base_indent:
-                # Jos rivi alkaa sulkevalla merkillä, se on viimeinen rivi
-                if line.strip().startswith(('}', ']', ')')):
-                    e_idx = j + 1
-                    break
-                # Jos muuttuja on jo saanut sisältöä ja tulee uusi muuttuja/funktio samalla tasolla
-                if any(line.strip().startswith(prefix) for prefix in ('def ', 'class ', 'self.')) or '=' in line:
-                    break
-                e_idx = j + 1
-            else:
-                # Sisennys pieneni -> lohko loppui
-                break
-        
-        match_end = match_start + len('\n'.join(c_lines[:e_idx]))
-        end_line_no = start_line_no + e_idx - 1
-        old_code = nykyinen_sisalto[match_start:match_end]
-
-        print(f"\n🔄 KORVATAAN: {CYAN}{target_name}{RESET} (Rivit {start_line_no}-{end_line_no})")
-        print(f"{RED}--- POISTETTAVA ALKAA ---{RESET}")
-        print(f"{RED}{old_code}{RESET}")
-        print(f"{RED}--- POISTETTAVA LOPPUU ---{RESET}")
-        
-        # === MUUTOS: uuden koodin rivinumerot ===
-        new_line_count = code_to_insert.count('\n') + 1
-        new_start_line_no = start_line_no
-        new_end_line_no = new_start_line_no + new_line_count - 1
-
-        print(
-            f"{YELLOW}--- UUSI ALKAA "
-            f"(Rivit {new_start_line_no}-{new_end_line_no}, "
-            f"Yhteensä {new_line_count} riviä) ---{RESET}"
-        )
-        print(f"{YELLOW}{code_to_insert}{RESET}")
-        print(f"{YELLOW}--- UUSI LOPPUU ---{RESET}")
-        
-        return nykyinen_sisalto[:match_start] + code_to_insert + nykyinen_sisalto[match_end:]
-    else:
-        print(f"\n✨ LISÄTÄÄN UUSI: {CYAN}{target_name}{RESET}")
-
-        # === MUUTOS: metodi luokan sisälle ===
+    for node in ast.walk(tree):
         if class_name:
-            c_match = re.search(
-                rf'class\s+{re.escape(class_name)}\s*[:\(]',
-                nykyinen_sisalto
-            )
-            if c_match:
-                after_c = nykyinen_sisalto[c_match.start():]
-                lines = after_c.split('\n')
-                class_line = lines[0]
-                class_indent = len(class_line) - len(class_line.lstrip())
-
-                insert_idx = 1
-                for i, line in enumerate(lines[1:], 1):
-                    if not line.strip():
-                        continue
-                    indent = len(line) - len(line.lstrip())
-                    if indent <= class_indent:
-                        insert_idx = i
+            if isinstance(node, ast.ClassDef) and node.name == class_name:
+                parent_class_node = node
+                if item_name:
+                    for sub in node.body:
+                        if not is_variable and isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)) and sub.name == item_name:
+                            found_node = sub
+                            break
+                        elif is_variable and isinstance(sub, ast.Assign):
+                            for t in sub.targets:
+                                if (isinstance(t, ast.Name) and t.id == item_name) or (isinstance(t, ast.Attribute) and t.attr == item_name):
+                                    found_node = sub
+                                    break
+                    if found_node: break
+                else:
+                    found_node = node
+                    break
+        elif item_name:
+            if not is_variable and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == item_name:
+                found_node = node
+                break
+            elif is_variable and isinstance(node, ast.Assign):
+                for t in node.targets:
+                    if isinstance(t, ast.Name) and t.id == item_name:
+                        found_node = node
                         break
-                    insert_idx = i + 1
+        if found_node: break
 
-                insert_pos = c_match.start() + len('\n'.join(lines[:insert_idx]))
-                return (
-                    nykyinen_sisalto[:insert_pos]
-                    + '\n'
-                    + code_to_insert
-                    + '\n'
-                    + nykyinen_sisalto[insert_pos:]
-                )
+    if found_node:
+        start_line_idx = found_node.lineno - 1
+        end_line_idx = found_node.end_lineno
+        
+        first_old_line = target_lines[start_line_idx]
+        base_indent_str = first_old_line[:len(first_old_line) - len(first_old_line.lstrip())]
+        
+        ai_lines = code_to_insert.split('\n')
+        # Etsitään ensimmäinen ei-tyhjä rivi sisennyksen laskemiseksi
+        first_non_empty_ai = next((l for l in ai_lines if l.strip()), "")
+        ai_indent_len = len(first_non_empty_ai) - len(first_non_empty_ai.lstrip())
+        
+        new_lines = []
+        for line in ai_lines:
+            if line.strip():
+                clean_line = line[ai_indent_len:] if len(line) >= ai_indent_len else line.lstrip()
+                new_lines.append(base_indent_str + clean_line)
+            else:
+                new_lines.append('')
+        indented_code_str = '\n'.join(new_lines)
 
-        # fallback: tiedoston loppuun
+        old_code_snippet = '\n'.join(target_lines[start_line_idx:end_line_idx])
+
+        print(f"\n🔄 KORVATAAN (AST): {CYAN}{class_name if class_name else ''}{'.' + item_name if item_name else ''}{RESET}")
+        print(f"{RED}--- POISTETTAVA (Rivit {start_line_idx+1}-{end_line_idx}) ---{RESET}")
+        print(f"{RED}{old_code_snippet}{RESET}")
+        print(f"{YELLOW}--- UUSI KOODI ---{RESET}")
+        print(f"{YELLOW}{indented_code_str}{RESET}")
+
+        return '\n'.join(target_lines[:start_line_idx]) + '\n' + indented_code_str + '\n' + '\n'.join(target_lines[end_line_idx:])
+    
+    elif parent_class_node and item_name:
+        insert_pos = parent_class_node.end_lineno
+        class_line = target_lines[parent_class_node.lineno - 1]
+        class_indent = class_line[:len(class_line) - len(class_line.lstrip())]
+        method_indent = class_indent + "    "
+        
+        ai_lines = code_to_insert.split('\n')
+        first_non_empty_ai = next((l for l in ai_lines if l.strip()), "")
+        ai_indent_len = len(first_non_empty_ai) - len(first_non_empty_ai.lstrip())
+        
+        new_lines = []
+        for line in ai_lines:
+            if line.strip():
+                clean_line = line[ai_indent_len:] if len(line) >= ai_indent_len else line.lstrip()
+                new_lines.append(method_indent + clean_line)
+            else:
+                new_lines.append('')
+        
+        indented_code_str = '\n'.join(new_lines)
+        print(f"\n➕ LISÄTÄÄN LUOKKAAN {CYAN}{class_name}{RESET}: {item_name}")
+        print(f"{YELLOW}--- UUSI KOODI ---{RESET}")
+        print(f"{YELLOW}{indented_code_str}{RESET}")
+        
+        return '\n'.join(target_lines[:insert_pos]) + '\n' + indented_code_str + '\n' + '\n'.join(target_lines[insert_pos:])
+
+    else:
+        target_name = f"{class_name}.{item_name}" if class_name and item_name else (item_name or class_name)
+        print(f"⚠️ {YELLOW}Kohdetta {target_name} ei löytynyt. Lisätään loppuun.{RESET}")
+        print(f"{YELLOW}--- UUSI KOODI ---{RESET}")
+        print(f"{YELLOW}{code_to_insert}{RESET}")
         return nykyinen_sisalto.rstrip() + '\n\n' + code_to_insert + '\n'
-
 if __name__ == "__main__":
     if os.name == 'nt': os.system('')
     ai_text = lue_tiedosto(AI_RESPONSE_FILE)
@@ -188,10 +179,10 @@ if __name__ == "__main__":
         is_tag = any(clean.startswith(t) for t in (':FUNCTION:', ':VARIABLE:', ':CLASS:'))
         if is_tag:
             if current_lines:
-                last_was_class = current_lines[-1].strip().startswith(':CLASS:')
-                if (clean.startswith(':FUNCTION:') or clean.startswith(':VARIABLE:')) and last_was_class:
+                last_line = current_lines[-1].strip()
+                if (clean.startswith(':FUNCTION:') or clean.startswith(':VARIABLE:')) and last_line.startswith(':CLASS:'):
                     current_lines.append(line)
-                elif clean.startswith(':CLASS:') or not last_was_class:
+                elif clean.startswith(':CLASS:') or not any(l.strip().startswith(':CLASS:') for l in current_lines):
                     blocks.append('\n'.join(current_lines))
                     current_lines = [line]
                 else:
@@ -205,15 +196,15 @@ if __name__ == "__main__":
         blocks.append('\n'.join(current_lines))
 
     for i, block in enumerate(blocks, 1):
-        if not any(t in block for t in (':FUNCTION:', ':VARIABLE:')): continue
+        if not any(t in block for t in (':CLASS:', ':FUNCTION:', ':VARIABLE:')): continue
         
-        print(f"\n--- KÄSITTELLÄÄN LOHKO {i}/{len(blocks)} ---")
         sisalto = lue_tiedosto(TARGET_FILE)
+        if sisalto is None: continue
+        
         uusi_sisalto = kasittele_lohko(block, sisalto)
         
         if uusi_sisalto != sisalto:
-            if input(f"\n💾 Tallennetaanko? (k/e): ").lower() == 'k':
-                # tallenna_tiedosto(TARGET_FILE, uusi_sisalto)
-                pass
+            if input(f"\n💾 Tallennetaanko lohko {i}/{len(blocks)}? (k/e): ").lower() == 'k':
+                tallenna_tiedosto(TARGET_FILE, uusi_sisalto)
 
     print("\n✨ Valmis.")

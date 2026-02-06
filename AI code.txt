@@ -1,179 +1,29 @@
 :CLASS: Parser
-:VARIABLE: grammar_table
-    grammar_table = {
-        "include": {
-            "patterns": [
-                ["#include", "\"", "IDENT", "\""]
-            ],
-            "handler": "parseInclude"
-        },
-        "dim": {
-            "patterns": [
-                ["Dim", "IDENT", "As", "IDENT"],
-                ["Dim", "IDENT", "As", "IDENT"],
-                ["Dim", "IDENT", "IDENT"]
-            ],
-            "handler": "parseDim"
-        },
-        "var_decl": {
-            "patterns": [
-                ["IDENT"],
-                ["IDENT", "ArraySpec"],
-                ["IDENT", "Initializer"],
-                ["IDENT", "ArraySpec", "Initializer"]
-            ],
-            "handler": "parseVarDecl"
-        },
-        "type_grammar": {
-            "patterns": [
-                ["IDENT"],
-                ["IDENT", "*", "NUMBER"],
-                ["IDENT", "Ptr"],
-                ["IDENT", "Ptr", "Ptr"],
-                ["Function", "(", "ParamList", ")", "As", "IDENT"]
-            ],
-            "handler": "parseTypeGrammar"
-        },
-        "expr": {
-            "patterns": [
-                ["NUMBER"],
-                ["IDENT"],
-                ["IDENT", "(", "ExprList", ")"],
-                ["Expr", "+", "Expr"],
-                ["Expr", "-", "Expr"],
-                ["Expr", "*", "Expr"],
-                ["Expr", "/", "Expr"]
-            ],
-            "handler": "parseExpr"
-        },
-        "exprlist": {
-            "patterns": [
-                ["Expr"],
-                ["Expr", "COMMA", "ExprList"]
-            ],
-            "handler": "parseExprList"
-        },
-        "arrayspec": {
-            "patterns": [
-                ["(", "Expr", ")"],
-                ["(", "Expr", "To", "Expr", ")"]
-            ],
-            "handler": "parseArraySpec"
-        },
-        "initializer": {
-            "patterns": [
-                ["=", "Expr"],
-                ["=>", "Expr"]
-            ],
-            "handler": "parseInitializer"
-        },
-        "paramlist": {
-            "patterns": [
-                ["Param"],
-                ["Param", "COMMA", "ParamList"]
-            ],
-            "handler": "parseParamList"
-        },
-        "type_syntax": {
-            "patterns": [
-                ["IDENT"],
-                ["IDENT", "*", "NUMBER"],
-                ["IDENT", "Ptr"],
-                ["IDENT", "Ptr", "Ptr"]
-            ],
-            "handler": "parseTypeSyntax"
-        },
-        "type_field": {
-            "patterns": [
-                ["IDENT", "As", "IDENT"]
-            ],
-            "handler": "parseTypeField"
-        },
-        "type_static_field": {
-            "patterns": [
-                ["Static", "IDENT", "As", "IDENT"]
-            ],
-            "handler": "parseStaticField"
-        },
-        "type_visibility_field": {
-            "patterns": [
-                ["Public", ":", "IDENT", "As", "IDENT"],
-                ["Private", ":", "IDENT", "As", "IDENT"]
-            ],
-            "handler": "parseTypeField"
-        },
-        "type_method": {
-            "patterns": [
-                ["Declare", "Function", "IDENT", "(", "ParamList", ")", "As", "IDENT"],
-                ["Declare", "Sub", "IDENT", "(", "ParamList", ")"]
-            ],
-            "handler": "parseTypeMethod"
-        }
-    }
-
-:CLASS: Parser
-:FUNCTION: parseStatement
-    def parseStatement(self):
-        tok = self.current()
-        if tok.type == "KEYWORD" and tok.value.lower() == "type":
-            return self.parseTypeBlock()
-        if tok.type == "KEYWORD" and tok.value.lower() == "end":
-            nxt = self.peek()
-            if nxt.type == "KEYWORD" and nxt.value.lower() == "type":
-                self.advance()
-                self.advance()
-                return None
-        node = self._dispatch_grammar()
-        if node is not None:
-            return node
-        self.advance()
-        return None
-
-:CLASS: Parser
-:FUNCTION: parseType
-    def parseType(self):
-        return self.parseTypeBlock()
-
-:CLASS: Parser
-:FUNCTION: parseTypeBlock
-    def parseTypeBlock(self):
-        self.expect("KEYWORD", "Type")
-        type_name_tok = self.expect("IDENT")
-        tnode = TypeNode(name=type_name_tok.value, fields=[], methods=[])
-        self.symbol_table.addType(TypeSymbol(tnode.name, [], []))
-        current_visibility = "public"
-        while True:
-            tok = self.current()
-            if tok.type == "KEYWORD":
-                val = tok.value.lower()
-                if val == "end" and self.peek().type == "KEYWORD" and self.peek().value.lower() == "type":
-                    self.advance()
-                    self.advance()
-                    break
-                if val in ("public", "private"):
-                    current_visibility = val
-                    self.advance()
-                    if self.current().type == ":" or (self.current().type == "KEYWORD" and self.current().value == ":"):
-                        self.advance()
-                    continue
-                if val == "static":
-                    fnode = self.parseStaticField(current_visibility)
-                    tnode.fields.append(fnode)
-                    continue
-                if val == "dim":
-                    dim_node = self.parseDim()
-                    for n in dim_node.names:
-                        fnode = FieldNode(n, dim_node.type_name, current_visibility)
-                        tnode.fields.append(fnode)
-                    continue
-                if val == "declare":
-                    mnode = self.parseTypeMethod(current_visibility)
-                    if mnode:
-                        tnode.methods.append(mnode)
-                    continue
-            if tok.type == "IDENT":
-                fnode = self.parsePlainField(current_visibility)
-                tnode.fields.append(fnode)
-                continue
+:FUNCTION: parseStaticField
+def parseStaticField(self, visibility="public"):
+    self.expect("KEYWORD", "static")
+    name_tok = self.expect("IDENT")
+    name = name_tok.value
+    type_name = "Any"
+    if self.match("KEYWORD", "as"):
+        type_tok = self.expect("IDENT")
+        type_name = type_tok.value
+        # Tuki pointterityypeille myös staattisissa kentissä
+        if self.current().value.lower() == "ptr":
+            type_name += " Ptr"
             self.advance()
-        return tnode
+    return FieldNode(name, type_name, visibility, is_static=True)
+
+:CLASS: Parser
+:FUNCTION: _handle_type_static
+def _handle_type_static(self, visibility, tnode):
+    fnode = self.parseStaticField(visibility)
+    if fnode:
+        tnode.fields.append(fnode)
+        # Päivitetään symbolitaulun TypeSymbol
+        ts = self.symbol_table.getType(tnode.name)
+        if ts:
+            ts.fields.append(fnode)
+            if fnode.is_static:
+                ts.static_fields.append(fnode)
+    return True, visibility
