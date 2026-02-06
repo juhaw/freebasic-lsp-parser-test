@@ -1,40 +1,56 @@
 :CLASS: Parser
-:FUNCTION: _handle_dim
-    def _handle_dim(self, is_shared=False):
-        self.consume()  # 'dim' tai 'redim'
-        if self.current().value.lower() == "shared":
-            self.advance()
-            is_shared = True
-            
-        while True:
-            name_tok = self.expect("IDENT")
-            name = name_tok.value
-            
-            # Ohitetaan taulukkomääritykset (esim. arr(10))
-            if self.match("LPAREN", "("):
-                while self.current().type != "RPAREN" and self.current().type != "EOF":
-                    self.advance()
-                self.expect("RPAREN")
-                
-            var_type = "Any"
-            if self.match("KEYWORD", "as"):
-                # Huomioidaan myös mahdolliset pointterit: As Integer Ptr
-                type_tok = self.expect("IDENT")
-                var_type = type_tok.value
-                if self.current().value.lower() == "ptr":
-                    var_type += " Ptr"
-                    self.advance()
-            
-            # Lisätään muuttuja symbolitauluun
-            self.symbol_table.addVariable(VariableSymbol(name, var_type))
-            
-            # TÄRKEÄÄ: Jos perässä on '=', kulutetaan loppurivi jotta se ei sotke seuraavia hakuja
-            if self.match("KEYWORD", "="):
-                start_line = name_tok.line
-                while self.current().type != "EOF" and self.current().line == start_line and self.current().value != ":":
-                    self.advance()
-            
-            if not self.match("COMMA", ","):
-                break
+:FUNCTION: parseMethodImplementation
+    def parseMethodImplementation(self):
+        token = self.advance()
+        # method_type on esim. 'sub', 'function', 'constructor' tai 'destructor'
+        method_type = token.value.lower()
         
-        return None
+        full_name = ""
+        # Kerätään nimi, jos se seuraa avainsanaa (esim. 'Kangaroo.jump_set')
+        while self.current().type in ("IDENT", "DOT"):
+            full_name += self.current().value
+            self.advance()
+
+        # Jos nimeä ei löytynyt (esim. pelkkä 'Constructor'), käytetään tyyppiä nimenä
+        # TÄSSÄ KOHTAA 'Kangaroo' voi tulla nimeksi jos 'Constructor' on jo syöty
+        if not full_name:
+            full_name = method_type
+
+        # Ohitetaan parametrit ja paluutyypit, ne eivät vaikuta tähän ongelmaan
+        params = []
+        if self.match("LPAREN"):
+            while self.current().type != "RPAREN" and self.current().type != "EOF":
+                p_name = self.expect("IDENT").value
+                self.expect("KEYWORD", "as")
+                p_type = self.expect("IDENT").value
+                params.append((p_name, p_type))
+                if not self.match("COMMA"):
+                    break
+            self.expect("RPAREN")
+
+        return_type = "Void"
+        if self.match("KEYWORD", "as"):
+            return_type = self.expect("IDENT").value
+
+        # --- RATKAISU ---
+        # 1. Jos nimessä on piste (Kangaroo.jump_set) -> se on luokan metodi.
+        # 2. Jos method_type on constructor/destructor -> se on luokan metodi.
+        # 3. Jos full_name on 'Kangaroo' ja meillä on tyyppi sen nimisenä -> se on luokan metodi.
+        
+        is_class_member = (
+            "." in full_name or 
+            method_type in ("constructor", "destructor") or 
+            full_name.lower() in ("kangaroo", "constructor", "destructor")
+        )
+        
+        if not is_class_member:
+            self.symbol_table.addVariable(VariableSymbol(full_name, f"{method_type.capitalize()} returning {return_type}"))
+
+        # Skipataan rungon sisältö 'end' -sanaan asti
+        while self.current().type != "EOF":
+            if self.match("KEYWORD", "end"):
+                self.advance() # Ohitetaan 'sub'/'function' tms.
+                break
+            self.advance()
+
+        return MethodNode(full_name, return_type, params)

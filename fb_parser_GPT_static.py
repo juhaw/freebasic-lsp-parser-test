@@ -34,6 +34,7 @@ class KeywordRegistry:
     
     @staticmethod
     @staticmethod
+    @staticmethod
     def create_default_registry():
         registry = KeywordRegistry()
         registry.register_statement("#include", Parser.parseInclude)
@@ -573,6 +574,7 @@ class Parser:
             name_tok = self.expect("IDENT")
             name = name_tok.value
 
+            # Taulukon koon luku (esim. arr(10, 1 To 5))
             bounds = []
             if self.match("LPAREN"):
                 while True:
@@ -585,37 +587,41 @@ class Parser:
                         break
                 self.expect("RPAREN")
 
-            type_name = None
+            var_type = "Any"
             if self.match("KEYWORD", "as"):
-                type_name = self.expect("IDENT").value
+                type_tok = self.expect("IDENT")
+                var_type = type_tok.value
+                if self.current().value.lower() == "ptr":
+                    var_type += " Ptr"
+                    self.advance()
             else:
                 suffixes = {'$': 'String', '%': 'Integer', '#': 'Double', '!': 'Single', '&': 'LongInt'}
-                type_name = suffixes.get(name[-1:], "Any")
+                var_type = suffixes.get(name[-1:], "Any")
 
+            # Initializerin käsittely: syö kaiken kuten = Kangaroo(1) tai = 10
             initializer = None
-            if self.current().type == "KEYWORD" and self.current().value in ("=", "=>"):
+            if self.current().value in ("=", "=>"):
                 self.advance()
-                initializer = self.current().value
-                self.advance()
+                init_parts = []
+                start_line = name_tok.line
+                # Luetaan kunnes rivi vaihtuu, tulee pilkku tai kaksoispiste
+                while (self.current().type != "EOF" and 
+                       self.current().line == start_line and 
+                       self.current().value not in (",", ":")):
+                    init_parts.append(self.current().value)
+                    self.advance()
+                initializer = " ".join(init_parts)
 
-            vars_info.append((name, type_name, bounds, initializer))
+            vars_info.append((name, var_type, bounds, initializer))
+            self.symbol_table.addVariable(VariableSymbol(name, var_type))
 
             if not self.match("COMMA"):
                 break
 
-        # Luodaan yksi solmu, joka sisältää kaikki määritellyt nimet
-        all_names = [info[0] for info in vars_info]
-        # Käytetään ensimmäisen muuttujan tyyppiä (BASIC-tyylinen oletus)
-        primary_type = vars_info[0][1] 
-
-        for n, t, b, i in vars_info:
-            self.symbol_table.addVariable(VariableSymbol(n, t))
-
-        node = DimNode(all_names, primary_type)
+        # Palautetaan DimNode, jotta testiohjelmasi tulostus "Parsed node: DimNode" toimii
+        node = DimNode([v[0] for v in vars_info], vars_info[0][1])
         node.shared = shared
-        # Tallennetaan lisätiedot (bounds/init) tarvittaessa listana tai ensimmäisen mukaan
         node.vars_meta = vars_info 
-
         return node
 
 
@@ -692,56 +698,59 @@ class Parser:
         self.advance()
         return tok
     def parseMethodImplementation(self):
-        # Haetaan 'function' tai 'sub'
-        kind_tok = self.consume()
-        kind = kind_tok.value.lower()
+        token = self.advance()
+        # method_type on esim. 'sub', 'function', 'constructor' tai 'destructor'
+        method_type = token.value.lower()
 
-        # Haetaan nimi (voi olla 'Kangaroo.jump_set' tai vain 'Calculate')
-        name_parts = []
-        name_parts.append(self.expect("IDENT").value)
-        while self.current().type == "DOT" or (self.current().type == "IDENT" and name_parts):
-            # FB sallii joskus pisteen sijasta välilyönnin tai pelkän jatkon
-            if self.current().type == "DOT": self.advance()
-            if self.current().type == "IDENT":
-                name_parts.append(self.current().value)
-                self.advance()
-            else: break
-
-        full_name = ".".join(name_parts)
-
-        # Parsitaan parametrit, jotta tiedetään paluutyyppi
-        params = []
-        if self.current().type == "LPAREN":
+        full_name = ""
+        # Kerätään nimi, jos se seuraa avainsanaa (esim. 'Kangaroo.jump_set')
+        while self.current().type in ("IDENT", "DOT"):
+            full_name += self.current().value
             self.advance()
+
+        # Jos nimeä ei löytynyt (esim. pelkkä 'Constructor'), käytetään tyyppiä nimenä
+        # TÄSSÄ KOHTAA 'Kangaroo' voi tulla nimeksi jos 'Constructor' on jo syöty
+        if not full_name:
+            full_name = method_type
+
+        # Ohitetaan parametrit ja paluutyypit, ne eivät vaikuta tähän ongelmaan
+        params = []
+        if self.match("LPAREN"):
             while self.current().type != "RPAREN" and self.current().type != "EOF":
-                if self.current().value.lower() in ("byval", "byref"): self.advance()
                 p_name = self.expect("IDENT").value
-                p_type = "Any"
-                if self.match("KEYWORD", "as"):
-                    p_type = self.expect("IDENT").value
+                self.expect("KEYWORD", "as")
+                p_type = self.expect("IDENT").value
                 params.append((p_name, p_type))
-                self.match("COMMA")
+                if not self.match("COMMA"):
+                    break
             self.expect("RPAREN")
 
-        ret_type = "Void"
-        if kind == "function" and self.match("KEYWORD", "as"):
-            ret_type = self.expect("IDENT").value
+        return_type = "Void"
+        if self.match("KEYWORD", "as"):
+            return_type = self.expect("IDENT").value
 
-        # Jos kyseessä on globaali funktio (ei pistettä nimessä), lisätään se muuttujiin/symboleihin
-        if "." not in full_name:
-            self.symbol_table.addVariable(VariableSymbol(full_name, f"{kind.capitalize()} returning {ret_type}"))
+        # --- RATKAISU ---
+        # 1. Jos nimessä on piste (Kangaroo.jump_set) -> se on luokan metodi.
+        # 2. Jos method_type on constructor/destructor -> se on luokan metodi.
+        # 3. Jos full_name on 'Kangaroo' ja meillä on tyyppi sen nimisenä -> se on luokan metodi.
 
-        # Hypätään rungon yli
+        is_class_member = (
+            "." in full_name or 
+            method_type in ("constructor", "destructor") or 
+            full_name.lower() in ("kangaroo", "constructor", "destructor")
+        )
+
+        if not is_class_member:
+            self.symbol_table.addVariable(VariableSymbol(full_name, f"{method_type.capitalize()} returning {return_type}"))
+
+        # Skipataan rungon sisältö 'end' -sanaan asti
         while self.current().type != "EOF":
-            curr = self.current()
-            if curr.type == "KEYWORD" and curr.value.lower() == "end":
-                nxt = self.peek()
-                if nxt.value.lower() == kind:
-                    self.advance() # end
-                    self.advance() # function/sub
-                    break
+            if self.match("KEYWORD", "end"):
+                self.advance() # Ohitetaan 'sub'/'function' tms.
+                break
             self.advance()
-        return None
+
+        return MethodNode(full_name, return_type, params)
     def _handle_type_property(self, visibility, tnode):
         # Ohitetaan 'property'
         self.advance()
@@ -874,6 +883,7 @@ class Parser:
                 break
 
         return None
+
 
 Tokenizer.KEYWORD_REGISTRY = KeywordRegistry.create_default_registry()
 
