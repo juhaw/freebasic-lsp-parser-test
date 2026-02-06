@@ -399,37 +399,68 @@ class Parser:
         pass
 
     def _handle_type_dim(self, visibility, tnode):
-        pass
+        self.advance()  # skip DIM
+
+        is_static = False
+        is_shared = False
+
+        if self.current().type == "IDENT" and self.current().value.lower() in ("shared", "static"):
+            if self.current().value.lower() == "shared":
+                is_shared = True
+            else:
+                is_static = True
+            self.advance()
+
+        while True:
+            if self.current().type != "IDENT":
+                return True, visibility
+
+            name = self.current().value
+            self.advance()
+
+            if self.current().type == "LPAREN":
+                while self.current().type not in ("RPAREN", "EOF"):
+                    self.advance()
+                if self.current().type == "RPAREN":
+                    self.advance()
+
+            if self.current().type != "IDENT" or self.current().value.lower() != "as":
+                return True, visibility
+            self.advance()
+
+            if self.current().type != "IDENT":
+                return True, visibility
+            type_name = self.current().value
+            self.advance()
+
+            fnode = FieldNode(name, type_name, visibility, is_static=is_static)
+            tnode.fields.append(fnode)
+
+            if self.current().type == "COMMA":
+                self.advance()
+                continue
+
+            return True, visibility
 
     def _dispatch_type_block_line(self, visibility, tnode):
         tok = self.current()
-        if tok.type != "IDENT":
-            return False, visibility
-
         key = tok.value.lower()
+
+        # DIM inside TYPE
+        if key == "dim":
+            return self._handle_type_dim(visibility, tnode)
+
+        # existing handlers
         handler_name = self.type_block_dispatch.get(key)
+        if handler_name:
+            handler = getattr(self, handler_name)
+            result = handler(visibility, tnode)
+            if result is None:
+                return False, visibility
+            return result
 
-        # 🔥 Estää constructor/destructor‑tuplaukset lopullisesti
-        if key in ("constructor", "destructor"):
-            handled, visibility = self.handleConstructorDestructor(visibility, tnode)
-            return True, visibility
-
-        # Kenttä "name As Type"
-        if handler_name is None:
-            nxt = self.peek()
-            if nxt.type == "IDENT" and nxt.value.lower() == "as":
-                fnode = self.parsePlainField(visibility)
-                if fnode:
-                    tnode.fields.append(fnode)
-                    return True, visibility
-            return False, visibility
-
-        handler = getattr(self, handler_name)
-        res = handler(visibility, tnode)
-        if res:
-            return res
-
-        return False, visibility
+        # fallback: normal field line
+        return self._handle_type_field(visibility, tnode)
 
     def parseTypeBlock(self):
         tok = self.current()
@@ -987,6 +1018,36 @@ class Parser:
         self.advance()
         self.advance()
         return True
+    def _handle_type_field(self, visibility, tnode):
+        # name
+        if self.current().type != "IDENT":
+            return False, visibility
+        name = self.current().value
+        self.advance()
+
+        # skip array dims
+        if self.current().type == "LPAREN":
+            while self.current().type not in ("RPAREN", "EOF"):
+                self.advance()
+            if self.current().type == "RPAREN":
+                self.advance()
+
+        # AS
+        if self.current().type != "IDENT" or self.current().value.lower() != "as":
+            return False, visibility
+        self.advance()
+
+        # type name
+        if self.current().type != "IDENT":
+            return False, visibility
+        type_name = self.current().value
+        self.advance()
+
+        # add field
+        fnode = FieldNode(name, type_name, visibility, is_static=False)
+        tnode.fields.append(fnode)
+
+        return True, visibility
 
 
 

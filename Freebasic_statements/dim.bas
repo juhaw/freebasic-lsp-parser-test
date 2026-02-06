@@ -84,7 +84,7 @@ Type Kangaroo
     Jump as Integer
     Pouch as Integer
     hai as UByte
-    marx as integer
+    dim marx as integer
     
     declare sub jump_set(yksi as Integer)
     declare function jump_get() as Integer

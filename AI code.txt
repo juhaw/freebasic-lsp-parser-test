@@ -1,58 +1,102 @@
 :CLASS: Parser
-:FUNCTION: handleConstructorDestructor
-def handleConstructorDestructor(self, visibility, tnode):
+:FUNCTION: _dispatch_type_block_line
+def _dispatch_type_block_line(self, visibility, tnode):
     tok = self.current()
-    kind = tok.value.lower()
+    key = tok.value.lower()
+
+    # DIM inside TYPE
+    if key == "dim":
+        return self._handle_type_dim(visibility, tnode)
+
+    # existing handlers
+    handler_name = self.type_block_dispatch.get(key)
+    if handler_name:
+        handler = getattr(self, handler_name)
+        result = handler(visibility, tnode)
+        if result is None:
+            return False, visibility
+        return result
+
+    # fallback: normal field line
+    return self._handle_type_field(visibility, tnode)
+
+
+:CLASS: Parser
+:FUNCTION: _handle_type_field
+def _handle_type_field(self, visibility, tnode):
+    # name
+    if self.current().type != "IDENT":
+        return False, visibility
+    name = self.current().value
     self.advance()
 
-    type_name = tnode.name
-    params = []
-
+    # skip array dims
     if self.current().type == "LPAREN":
-        self.advance()
-        while self.current().type != "RPAREN" and self.current().type != "EOF":
-            if self.current().type == "IDENT":
-                pname = self.current().value
-                self.advance()
-                if self.current().type == "IDENT" and self.current().value.lower() == "as":
-                    self.advance()
-                    if self.current().type == "IDENT":
-                        ptype = self.current().value
-                        self.advance()
-                        params.append((pname, ptype))
-            else:
-                self.advance()
+        while self.current().type not in ("RPAREN", "EOF"):
+            self.advance()
         if self.current().type == "RPAREN":
             self.advance()
 
-    body = []
-    while not (self.current().type == "IDENT" and self.current().value.lower() == "end"):
-        stmt = self.parseStatement()
-        if stmt:
-            body.append(stmt)
-        else:
-            self.advance()
-
-    self.advance()
+    # AS
+    if self.current().type != "IDENT" or self.current().value.lower() != "as":
+        return False, visibility
     self.advance()
 
-    node = ConstructorDestructorNode(kind, type_name, visibility, body)
-    node.params = params
+    # type name
+    if self.current().type != "IDENT":
+        return False, visibility
+    type_name = self.current().value
+    self.advance()
 
-    # 🔥 Poistaa kaikki aiemmat constructor/destructor‑merkinnät symbolitaulusta
-    ts = self.symbol_table.getType(type_name)
-    if ts:
-        ts.methods = [
-            m for m in ts.methods
-            if not (isinstance(m, ConstructorDestructorNode) and m.kind == kind)
-        ]
-        ts.methods.append(node)
-
-    # 🔥 Poistaa kaikki aiemmat constructor/destructor‑merkinnät AST:stä
-    tnode.methods = [
-        m for m in tnode.methods
-        if not (isinstance(m, ConstructorDestructorNode) and m.kind == kind)
-    ]
-    tnode.methods.append(node)
+    # add field
+    fnode = FieldNode(name, type_name, visibility, is_static=False)
+    tnode.fields.append(fnode)
 
     return True, visibility
+
+
+:CLASS: Parser
+:FUNCTION: _handle_type_dim
+def _handle_type_dim(self, visibility, tnode):
+    self.advance()  # skip DIM
+
+    is_static = False
+    is_shared = False
+
+    if self.current().type == "IDENT" and self.current().value.lower() in ("shared", "static"):
+        if self.current().value.lower() == "shared":
+            is_shared = True
+        else:
+            is_static = True
+        self.advance()
+
+    while True:
+        if self.current().type != "IDENT":
+            return True, visibility
+
+        name = self.current().value
+        self.advance()
+
+        if self.current().type == "LPAREN":
+            while self.current().type not in ("RPAREN", "EOF"):
+                self.advance()
+            if self.current().type == "RPAREN":
+                self.advance()
+
+        if self.current().type != "IDENT" or self.current().value.lower() != "as":
+            return True, visibility
+        self.advance()
+
+        if self.current().type != "IDENT":
+            return True, visibility
+        type_name = self.current().value
+        self.advance()
+
+        fnode = FieldNode(name, type_name, visibility, is_static=is_static)
+        tnode.fields.append(fnode)
+
+        if self.current().type == "COMMA":
+            self.advance()
+            continue
+
+        return True, visibility
