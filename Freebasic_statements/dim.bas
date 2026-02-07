@@ -105,13 +105,15 @@ End Type
 Dim kanga1 As Kangaroo = Kangaroo(1)
 Dim kanga2 As Kangaroo = Kangaroo(2)
 Dim susihukkanen As Kangaroo = Kangaroo(3)
-kanga1.jump_set(5)
-print "kanga1.Pouch:", kanga1.Pouch
+'kanga1.jump_set(5)
+
 ' -----------------------------
 ' 10️⃣ SHARED muuttujat
 ' -----------------------------
 Dim Shared counter As Integer
 Dim Shared arr(5) As Double
+
+print ("kanga1.Pouch:" & kanga1.Pouch)
 
 'declare
 sub Kangaroo.jump_set(yksi as integer)

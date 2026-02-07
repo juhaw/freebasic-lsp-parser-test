@@ -1,69 +1,86 @@
 :CLASS: Parser
-:FUNCTION: parseAssignment
-    def parseAssignment(self) -> Optional[AssignmentNode]:
-        tok = self.current()
+:FUNCTION: parseDim
+    def parseDim(self) -> Optional[DimNode]:
+        start_pos = self.pos
         
-        # Älä käsittele print-lauseita tässä
-        if tok.type == "IDENT" and tok.value.lower() == "print":
-            return None
+        # DEBUG-tulostus
+        # print(f"DEBUG parseDim: current token = {self.current().type} '{self.current().value}'")
         
-        if tok.type != "IDENT":
-            return None
-        
-        # Tallenna aloituspositio
-        start_line = tok.line
-        
-        left_tokens = []
-        left_tokens.append(tok.value)
-        self.advance()
-        
-        # Lue vasen puoli (target)
-        while True:
-            tok = self.current()
-            if tok.type in ("DOT", "LPAREN"):
-                left_tokens.append(tok.value)
-                self.advance()
-            elif tok.type in ("NUMBER", "IDENT", "RPAREN", "COMMA"):
-                left_tokens.append(tok.value)
-                self.advance()
-            elif tok.type == "COLON":  # Lopeta jos tulee ':' (useampi lause samalla rivillä)
-                # ':' tarkoittaa että tämä assignment loppui
-                # Palauta None jotta parseStatement käsittelee ':' erikseen
+        # Tarkista onko DIM
+        if not (self.current().type == "IDENT" and self.current().value.lower() == "dim"):
+            # Ei ole DIM, tarkista onko SHARED (ilman DIM:ää)
+            if not (self.current().type == "IDENT" and self.current().value.lower() == "shared"):
                 return None
             else:
-                break
+                # On SHARED ilman DIM:ää
+                self.advance()  # Siirry SHARED:n yli
+                is_shared = True
+                is_dim = False
+        else:
+            # On DIM
+            self.advance()  # Siirry DIM:n yli
+            is_dim = True
+            is_shared = False
         
-        # Tarkista että seuraava on '='
-        tok = self.current()
-        if tok.type != "EQUAL":
-            return None
-        self.advance()
-        
-        # Lue oikea puoli (value) - pysähdy kun tulee ':' tai rivinvaihto
-        right_tokens = []
-        while (self.current().type != "EOF" and 
-               self.current().line == start_line):  # Pysähdy rivinvaihtoon
-            # Pysähdy jos tulee ':' (seuraava lause samalla rivillä)
-            if self.current().type == "COLON":
-                break
-            
-            # Pysähdy jos alkaa uusi lause
-            if self.current().type == "IDENT":
-                next_val = self.current().value.lower()
-                if (next_val in ["dim", "type", "print", "sub", "function", 
-                                 "end", "constructor", "destructor", "declare"] or
-                    next_val in self.statement_dispatch):
-                    break
-            
-            right_tokens.append(self.current().value)
+        # Jos oli DIM, tarkista onko sen jälkeen SHARED
+        if is_dim and self.current().type == "IDENT" and self.current().value.lower() == "shared":
+            is_shared = True
             self.advance()
         
-        # Jos oikea puoli on tyhjä, ei ole validi assignment
-        if not right_tokens:
-            return None
+        is_static = False
+        # Tarkista STATIC (vain DIM:n jälkeen)
+        if is_dim and self.current().type == "IDENT" and self.current().value.lower() == "static":
+            is_static = True
+            self.advance()
         
-        left_repr = "".join(str(x) for x in left_tokens)
-        right_repr = " ".join(str(x) for x in right_tokens)
+        # DEBUG
+        # print(f"DEBUG: is_dim={is_dim}, is_shared={is_shared}, is_static={is_static}")
         
-        # Luo AssignmentNode
-        return AssignmentNode(left_repr, right_repr)
+        decls = []
+        while True:
+            if self.current().type != "IDENT":
+                if decls:
+                    break
+                self.pos = start_pos
+                return None
+            
+            name = self._normalize_identifier(self.current().value)
+            self.advance()
+            
+            dims = None
+            if self.current().type == "LPAREN":
+                dims = self._parseArrayDimensions()
+            
+            if not self.match("IDENT", "as"):
+                self.pos = start_pos
+                return None
+            
+            if self.current().type != "IDENT":
+                self.pos = start_pos
+                return None
+            type_name = self._normalize_identifier(self.current().value)
+            self.advance()
+            
+            init_value = None
+            if self.current().type == "EQUAL":
+                self.advance()
+                init_value = self._parseInitializer()
+            
+            decl = {
+                "name": name,
+                "type": type_name,
+                "dims": dims,
+                "init": init_value,
+                "shared": is_shared,
+                "static": is_static
+            }
+            decls.append(decl)
+            
+            if self.current().type != "COMMA":
+                break
+            self.advance()
+        
+        # DEBUG
+        # print(f"DEBUG: Created DimNode with {len(decls)} declarations: {decls}")
+        
+        return DimNode(decls)
