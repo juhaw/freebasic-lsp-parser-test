@@ -4,7 +4,7 @@
         {
             "label": "F5_Alykas_Ajo",
             "type": "shell",
-            "command": "if ('${fileExtname}' -eq '.bas') { & 'C:\\FreeBASIC\\fbc64.exe' -g '${file}'; if ($?) { & '${fileDirname}\\${fileBasenameNoExtension}.exe' } } elseif ('${fileExtname}' -eq '.py') { & python '${workspaceFolder}\\run_test.py' }",
+            "command": "if ('${fileExtname}' -eq '.bas') { & 'C:\\FreeBASIC\\fbc64.exe' -g '${file}'; if ($?) { & '${fileDirname}\\${fileBasenameNoExtension}.exe' } } elseif ('${fileExtname}' -eq '.py') { & python '${workspaceFolder}\\fb_parser_DeepSeek.py' }",
             "group": {
                 "kind": "test",
                 "isDefault": true

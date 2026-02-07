@@ -14,8 +14,6 @@ class Token:
         self.line = line
         self.column = column
 
-class KeywordRegistry:
-    pass
 
 class Tokenizer:
     def __init__(self, source, filename=""):
@@ -91,7 +89,18 @@ class Tokenizer:
                 self.tokens.append(Token("NUMBER", num, self.line, start_col))
                 continue
 
-            if char.isalpha() or char == '_' or char == '#':
+            # KORJAA TÄMÄ: Lisää #include-käsittely
+            if char == '#':
+                start_col = self.col
+                directive = char
+                self.advance()
+                while self.current_char is not None and (self.current_char.isalpha() or self.current_char == '_'):
+                    directive += self.current_char
+                    self.advance()
+                self.tokens.append(Token("DIRECTIVE", directive, self.line, start_col))
+                continue
+
+            if char.isalpha() or char == '_':
                 start_col = self.col
                 ident = ""
                 while self.current_char is not None and (self.current_char.isalnum() or self.current_char == '_'):
@@ -102,7 +111,6 @@ class Tokenizer:
                     ident += self.current_char
                     self.advance()
 
-                # Kaikki tunnisteet ovat nyt IDENT
                 self.tokens.append(Token("IDENT", ident, self.line, start_col))
                 continue
 
@@ -188,11 +196,42 @@ class TypeSymbol:
         self.fields = fields
         self.methods = methods
         self.static_fields = []
+    def __str__(self):
+        result = f"Type {self.name}:\n"
+        for field in self.fields:
+            static_mark = " (Static)" if getattr(field, "is_static", False) else ""
+            result += f"  {field.name} : {field.type_name}{static_mark}\n"
+        for method in self.methods:
+            params = ", ".join([p[0] for p in method.params]) if method.params else ""
+            result += f"  {method.name}({params})\n"
+        return result
 
 class VariableSymbol:
-    def __init__(self, name, type_name):
+  
+    def __init__(self, name, type_name, init_value=None, is_shared=False, is_static=False):
         self.name = name
         self.type = type_name
+        self.init_value = init_value
+        self.is_shared = is_shared
+        self.is_static = is_static
+    def __str__(self):
+        result = f"{self.name} : {self.type}"
+        if self.init_value:
+            # Tulosta init_value siistimmin
+            if self.init_value.get("type") == "string":
+                result += f' = "{self.init_value.get("value")}"'
+            elif self.init_value.get("type") == "number":
+                result += f" = {self.init_value.get('value')}"
+            elif self.init_value.get("type") == "constructor":
+                args = ", ".join(self.init_value.get("args", []))
+                result += f" = {self.init_value.get('name')}({args})"
+            else:
+                result += f" = {self.init_value}"
+        if self.is_shared:
+            result += " [Shared]"
+        if self.is_static:
+            result += " [Static]"
+        return result
 
 class SymbolTable:
     def __init__(self):
@@ -230,12 +269,25 @@ class SymbolTable:
             for m in ts.methods:
                 if getattr(m, "visibility", "public").lower() != "public":
                     continue
-                # Varmistetaan nimen haku MethodNode-oliolta
+
                 m_name = getattr(m, 'name', 'Unknown')
+
+                # Konstruktorit/destruktorit erikseen
+                if m_name == "(" or isinstance(m, ConstructorDestructorNode):
+                    m_name = ts.name  # Käytä tyypin nimeä
+
+                # Luo parametrilista
+                param_str = ""
+                if hasattr(m, 'params') and m.params:
+                    param_names = [p[0] for p in m.params]
+                    param_str = f"({', '.join(param_names)})"
+                else:
+                    param_str = "()"
+
                 members.append({
                     "label": m_name,
-                    "insertText": f"{m_name}($1)",
-                    "detail": f"(Method) {m_name}"
+                    "insertText": f"{m_name}{param_str}",
+                    "detail": f"(Method) {m_name}{param_str}"
                 })
             result[ts.name] = members
         return result
@@ -243,7 +295,12 @@ class SymbolTable:
     def var_to_type_dict(self):
         result = {}
         for name, vs in self.variables.items():
-            result[vs.name] = vs.type
+            result[vs.name] = {
+                "type": vs.type,
+                "init_value": getattr(vs, "init_value", None),
+                "is_shared": getattr(vs, "is_shared", False),
+                "is_static": getattr(vs, "is_static", False)
+            }
         return result
 
 class Parser:
@@ -344,7 +401,7 @@ class Parser:
     def parseStatement(self):
         tok = self.current()
 
-        if tok.type == "IDENT":
+        if tok.type in ("DIRECTIVE", "IDENT"):
             handler_name = self.statement_dispatch.get(tok.value.lower())
             if handler_name:
                 handler = getattr(self, handler_name, None)
@@ -366,37 +423,116 @@ class Parser:
                 self.advance()
             return None
 
-        node = self._dispatch_grammar()
-        if node is not None:
-            return node
-
         self.advance()
         return None
 
     def parseInclude(self):
-        tok = self.current()
-
-        # Odotetaan IDENT, jonka arvo on "#include"
-        if tok.type != "IDENT" or tok.value.lower() != "#include":
+        if not (self.current().type == "DIRECTIVE" and 
+                self.current().value.lower() == "#include"):
             return None
 
         self.advance()
 
-        # Odotetaan STRING
-        if self.current().type != "STRING":
+        path = ""
+        if self.current().type == "STRING":
+            path = self.current().value
+            self.advance()
+        elif (self.current().type == "IDENT" and 
+              self.current().value == "<"):
+            self.advance()
+            while (self.current().type != "IDENT" or 
+                   self.current().value != ">") and self.current().type != "EOF":
+                path += self.current().value
+                self.advance()
+            if self.current().type == "IDENT" and self.current().value == ">":
+                self.advance()
+        else:
             return None
 
-        path = self.current().value
+        full_path = os.path.join(self.base_path, path)
+        if os.path.exists(full_path):
+            with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
+                code = f.read()
+            tokenizer = tokenize_source(code, full_path)
+            sub_parser = Parser(tokenizer.get_tokens(), self.symbol_table, 
+                               os.path.dirname(full_path))
+            sub_parser.parseBlock()
+
+        return IncludeNode(path)
+
+    def _handle_type_declare(self, visibility, tnode, ts):
+        self.advance()  # ohita 'declare'
+
+        # Tarkista onko constructor/destructor
+        next_tok = self.current()
+        if next_tok.value.lower() in ("constructor", "destructor"):
+            return self.handleConstructorDestructor(visibility, tnode)
+
+        # ... vanha koodi jatkuu ...
+        kind = self.current().value.lower()  # 'sub' tai 'function'
         self.advance()
 
-        node = IncludeNode(path)
-        return node
+        name = self.current().value
+        self.advance()
 
-    def _handle_type_declare(self, visibility, tnode):
-        pass
+        params = []
+        if self.current().type == "LPAREN":
+            self.advance()
+            while self.current().type != "RPAREN":
+                if self.current().type == "IDENT":
+                    param_name = self.current().value
+                    self.advance()
+                    param_type = "Any"
+                    if self.current().type == "IDENT" and self.current().value.lower() == "as":
+                        self.advance()
+                        if self.current().type == "IDENT":
+                            param_type = self.current().value
+                            self.advance()
+                    params.append((param_name, param_type))
+                if self.current().type == "COMMA":
+                    self.advance()
+            self.advance()
+
+        return_type = "Void"
+        if kind == "function" and self.current().type == "IDENT" and self.current().value.lower() == "as":
+            self.advance()
+            if self.current().type == "IDENT":
+                return_type = self.current().value
+                self.advance()
+
+        # Luo MethodNode
+        method = MethodNode(name, params, return_type, visibility)
+        tnode.methods.append(method)
+        ts.methods.append(method)
+
+        return True, visibility
+
+        # ... vanha koodi jatkuu ...
 
     def _handle_type_static(self, visibility, tnode):
-        pass
+        self.advance()  # ohita 'static'
+
+        if self.current().type != "IDENT":
+            return False, visibility
+
+        field_name = self.current().value
+        self.advance()
+
+        if self.current().type != "IDENT" or self.current().value.lower() != "as":
+            return False, visibility
+        self.advance()
+
+        if self.current().type != "IDENT":
+            return False, visibility
+
+        type_name = self.current().value
+        self.advance()
+
+        # Luo staattinen kenttä
+        fnode = FieldNode(field_name, type_name, visibility, is_static=True)
+        tnode.fields.append(fnode)
+
+        return True, visibility
 
     def _handle_type_dim(self, visibility, tnode):
         self.advance()  # skip DIM
@@ -442,9 +578,18 @@ class Parser:
 
             return True, visibility
 
-    def _dispatch_type_block_line(self, visibility, tnode):
+    def _dispatch_type_block_line(self, visibility, tnode, ts):
         tok = self.current()
         key = tok.value.lower()
+
+        # Visibility handlers
+        if key in ("public", "private"):
+            visibility = key
+            self.advance()
+            # Optional colon
+            if self.current().type == "COLON":
+                self.advance()
+            return True, visibility
 
         # DIM inside TYPE
         if key == "dim":
@@ -454,7 +599,11 @@ class Parser:
         handler_name = self.type_block_dispatch.get(key)
         if handler_name:
             handler = getattr(self, handler_name)
-            result = handler(visibility, tnode)
+            # Kutsu handleria oikealla määrällä parametreja
+            if handler_name == "_handle_type_declare":
+                result = handler(visibility, tnode, ts)
+            else:
+                result = handler(visibility, tnode)
             if result is None:
                 return False, visibility
             return result
@@ -478,9 +627,10 @@ class Parser:
         tnode = TypeNode(type_name)
         current_visibility = "public"
 
-        # 🔥 Luo symboli tyhjillä listoilla — EI viittauksia tnode.fields/methods
+        # Luo symboli
         ts = TypeSymbol(type_name, [], [])
         self.symbol_table.addType(ts)
+        self.current_type = ts  # Aseta nykyinen tyyppi
 
         while True:
             tok = self.current()
@@ -491,18 +641,20 @@ class Parser:
             if tok.type == "IDENT" and tok.value.lower() == "end":
                 nxt = self.peek()
                 if nxt.type == "IDENT" and nxt.value.lower() == "type":
-                    self.advance()
-                    self.advance()
+                    self.advance()  # end
+                    self.advance()  # type
                     break
 
-            handled, current_visibility = self._dispatch_type_block_line(current_visibility, tnode)
+            # Kutsu dispatch-metodia TS:llä
+            handled, current_visibility = self._dispatch_type_block_line(current_visibility, tnode, ts)
             if handled:
-                # 🔥 Synkronoi ilman tuplausta
-                ts.fields = list(dict.fromkeys(tnode.fields))
-                ts.methods = list(dict.fromkeys(tnode.methods))
+                # Synkronoi
+                ts.fields = tnode.fields.copy()
+                ts.methods = tnode.methods.copy()
             else:
                 self.advance()
 
+        self.current_type = None  # Nollaa nykyinen tyyppi
         return tnode
 
     def parsePlainField(self, visibility):
@@ -539,76 +691,60 @@ class Parser:
         pass
 
     def parseDim(self):
-        tok = self.current()
-
-        # Odotetaan IDENT, jonka arvo on "dim"
-        if tok.type != "IDENT" or tok.value.lower() != "dim":
+        start_pos = self.pos
+        if not (self.current().type == "IDENT" and self.current().value.lower() == "dim"):
             return None
-
         self.advance()
-
-        # Optional: Shared / Static
         is_shared = False
         is_static = False
-        if self.current().type == "IDENT" and self.current().value.lower() in ("shared", "static"):
+        if self.current().type == "IDENT":
             if self.current().value.lower() == "shared":
                 is_shared = True
-            else:
+                self.advance()
+            elif self.current().value.lower() == "static":
                 is_static = True
-            self.advance()
-
+                self.advance()
         decls = []
-
         while True:
-            # Nimi
             if self.current().type != "IDENT":
+                if decls:
+                    break
+                self.pos = start_pos
                 return None
             name = self.current().value
             self.advance()
-
-            # Array-dimensiot (ohitetaan, mutta luetaan ulos)
             dims = None
             if self.current().type == "LPAREN":
-                dims = []
-                self.advance()
-                # Luetaan kunnes RPAREN
-                while self.current().type != "RPAREN" and self.current().type != "EOF":
-                    # Esim: 0 To 5, 1 To 2, 3, 5 To 8
-                    if self.current().type in ("NUMBER", "IDENT", "COMMA"):
-                        dims.append(self.current().value)
-                    self.advance()
-                if self.current().type == "RPAREN":
-                    self.advance()
-
-            # "As"
-            if self.current().type != "IDENT" or self.current().value.lower() != "as":
+                dims = self._parseArrayDimensions()
+            if not (self.current().type == "IDENT" and self.current().value.lower() == "as"):
+                self.pos = start_pos
                 return None
             self.advance()
-
-            # Tyyppinimi
             if self.current().type != "IDENT":
+                self.pos = start_pos
                 return None
             type_name = self.current().value
             self.advance()
-
+            init_value = None
+            if self.current().type == "EQUAL":
+                self.advance()
+                init_value = self._parseInitializer()
             decl = {
                 "name": name,
                 "type": type_name,
                 "dims": dims,
+                "init": init_value,
                 "shared": is_shared,
                 "static": is_static
             }
             decls.append(decl)
-
-            # Symbolitauluun
-            self.symbol_table.addVariable(VariableSymbol(name, type_name))
-
-            # Lisää muuttujia samalla rivillä?
-            if self.current().type == "COMMA":
-                self.advance()
-                continue
-            break
-
+            # KÄYTÄ NYT KAIKKIA PARAMETREJA!
+            self.symbol_table.addVariable(VariableSymbol(
+                name, type_name, init_value, is_shared, is_static
+            ))
+            if self.current().type != "COMMA":
+                break
+            self.advance()
         return DimNode(decls)
 
     def parseStaticField(self, visibility):
@@ -779,7 +915,39 @@ class Parser:
         node = MethodNode(name, params, return_type)
         return node
     def _handle_type_property(self, visibility, tnode):
-        pass
+        self.advance()  # ohita 'property'
+
+        if self.current().type != "IDENT":
+            return False, visibility
+
+        name = self.current().value
+        self.advance()
+
+        if self.current().type != "IDENT" or self.current().value.lower() != "as":
+            return False, visibility
+        self.advance()
+
+        if self.current().type != "IDENT":
+            return False, visibility
+
+        type_name = self.current().value
+        self.advance()
+
+        # Luo PropertyNode
+        prop_node = PropertyNode(name, type_name, visibility, [], [])
+        tnode.properties.append(prop_node)
+
+        # Skipataan propertyn runko toistaiseksi
+        while self.current().type != "EOF":
+            if self.current().type == "IDENT" and self.current().value.lower() == "end":
+                nxt = self.peek()
+                if nxt.type == "IDENT" and nxt.value.lower() == "property":
+                    self.advance()  # end
+                    self.advance()  # property
+                    break
+            self.advance()
+
+        return True, visibility
     def parseGlobalDeclare(self):
         tok = self.current()
 
@@ -830,8 +998,8 @@ class Parser:
         node = GlobalDeclareNode(kind, name, params, return_type)
         return node
     def handleConstructorDestructor(self, visibility, tnode):
-        tok = self.current()
-        kind = tok.value.lower()
+        kind_tok = self.current()
+        kind = kind_tok.value.lower()
         self.advance()
 
         type_name = tnode.name
@@ -843,46 +1011,36 @@ class Parser:
                 if self.current().type == "IDENT":
                     pname = self.current().value
                     self.advance()
+                    ptype = "Any"
                     if self.current().type == "IDENT" and self.current().value.lower() == "as":
                         self.advance()
                         if self.current().type == "IDENT":
                             ptype = self.current().value
                             self.advance()
-                            params.append((pname, ptype))
+                    params.append((pname, ptype))
                 else:
                     self.advance()
             if self.current().type == "RPAREN":
                 self.advance()
 
-        body = []
-        while not (self.current().type == "IDENT" and self.current().value.lower() == "end"):
-            stmt = self.parseStatement()
-            if stmt:
-                body.append(stmt)
-            else:
-                self.advance()
+        method_name = f"{kind.capitalize()} {type_name}"
+        method_node = MethodNode(type_name, params, "Void", visibility)
+        method_node.is_constructor = (kind == "constructor")
+        method_node.is_destructor = (kind == "destructor")
 
-        self.advance()
-        self.advance()
-
-        node = ConstructorDestructorNode(kind, type_name, visibility, body)
-        node.params = params
-
-        # 🔥 Poistaa kaikki aiemmat constructor/destructor‑merkinnät symbolitaulusta
         ts = self.symbol_table.getType(type_name)
         if ts:
-            ts.methods = [
-                m for m in ts.methods
-                if not (isinstance(m, ConstructorDestructorNode) and m.kind == kind)
-            ]
-            ts.methods.append(node)
+            ts.methods = [m for m in ts.methods if not (
+                (kind == "constructor" and getattr(m, "is_constructor", False)) or
+                (kind == "destructor" and getattr(m, "is_destructor", False))
+            )]
+            ts.methods.append(method_node)
 
-        # 🔥 Poistaa kaikki aiemmat constructor/destructor‑merkinnät AST:stä
-        tnode.methods = [
-            m for m in tnode.methods
-            if not (isinstance(m, ConstructorDestructorNode) and m.kind == kind)
-        ]
-        tnode.methods.append(node)
+        tnode.methods = [m for m in tnode.methods if not (
+            (kind == "constructor" and getattr(m, "is_constructor", False)) or
+            (kind == "destructor" and getattr(m, "is_destructor", False))
+        )]
+        tnode.methods.append(method_node)
 
         return True, visibility
     def _handle_dim(self, is_shared=False):
@@ -925,7 +1083,7 @@ class Parser:
         return type_node
     statement_dispatch = {
         "#include": "parseInclude",
-        "type": "parseTypeBlock",
+        "type": "parseTypeBlock", 
         "dim": "parseDim",
         "function": "parseMethodImplementation",
         "sub": "parseMethodImplementation",
@@ -937,11 +1095,11 @@ class Parser:
         "declare": "_handle_type_declare",
         "static": "_handle_type_static",
         "dim": "_handle_type_dim",
-        "property": "parseProperty",
+        "property": "_handle_type_property",
         "constructor": "handleConstructorDestructor",
         "destructor": "handleConstructorDestructor",
-        "public": None,
-        "private": None
+        "public": "_handle_visibility",
+        "private": "_handle_visibility"
     }
     def parseProperty(self, visibility, tnode):
         tok = self.current()
@@ -1048,6 +1206,69 @@ class Parser:
         tnode.fields.append(fnode)
 
         return True, visibility
+    def _handle_visibility(self, visibility, tnode):
+        # Tämä käsitellään jo _dispatch_type_block_line:ssa
+        # Palauta vain uusi visibility
+        new_vis = self.current().value.lower()
+        self.advance()
+        if self.current().type == "COLON":
+            self.advance()
+        return True, new_vis
+    def _parseArrayDimensions(self):
+        if self.current().type != "LPAREN":
+            return None
+        self.advance()
+        dims = []
+        while self.current().type != "RPAREN" and self.current().type != "EOF":
+            lower = None
+            upper = None
+            if self.current().type in ("NUMBER", "IDENT"):
+                lower = self.current().value
+                self.advance()
+                if (self.current().type == "IDENT" and 
+                    self.current().value.lower() == "to"):
+                    self.advance()
+                    if self.current().type in ("NUMBER", "IDENT"):
+                        upper = self.current().value
+                        self.advance()
+                else:
+                    upper = lower
+                    lower = "0"
+            if lower is not None:
+                dims.append((lower, upper))
+            if self.current().type == "COMMA":
+                self.advance()
+            elif self.current().type == "RPAREN":
+                break
+        if self.current().type == "RPAREN":
+            self.advance()
+        return dims
+    def _parseInitializer(self):
+        if self.current().type == "STRING":
+            value = self.current().value
+            self.advance()
+            return {"type": "string", "value": value}
+        elif self.current().type == "NUMBER":
+            value = self.current().value
+            self.advance()
+            return {"type": "number", "value": value}
+        elif self.current().type == "IDENT":
+            value = self.current().value
+            self.advance()
+            if self.current().type == "LPAREN":
+                self.advance()
+                args = []
+                while self.current().type != "RPAREN" and self.current().type != "EOF":
+                    if self.current().type in ("NUMBER", "STRING", "IDENT"):
+                        args.append(self.current().value)
+                        self.advance()
+                    if self.current().type == "COMMA":
+                        self.advance()
+                if self.current().type == "RPAREN":
+                    self.advance()
+                return {"type": "constructor", "name": value, "args": args}
+            return {"type": "variable", "value": value}
+        return None
 
 
 
